@@ -1,0 +1,7 @@
+package test:checkpoint;
+
+world checkpoint {
+    export bump: func() -> u32;
+    export get: func() -> u32;
+    export snapshot: func() -> list<u8>;
+}
