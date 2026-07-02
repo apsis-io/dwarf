@@ -1,0 +1,6 @@
+package test:sockprobe;
+
+world sockprobe {
+  import wasi:sockets/types@0.3.0;
+  export probe: async func() -> string;
+}
