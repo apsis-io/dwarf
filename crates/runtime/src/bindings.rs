@@ -16,59 +16,6 @@ use crate::trivia::iface_lookup;
 use crate::wit_imports::{FuncKind, WitInterface, classify, find_resource, root_bindings};
 use crate::{DetHashSet, DetIndexMap, QjsCallContext, coerce_fn};
 
-#[cfg(target_arch = "wasm32")]
-const WASM_PAGE_SIZE: usize = 65536;
-
-/// Rust/LLVM treat the bit-pattern 0 as an always-invalid pointer for any real
-/// dereference (`slice::from_raw_parts` rejects it both at compile time and,
-/// in a debug build, at runtime) — this is a hard language-level rule, not a
-/// wasm32 one, so it applies even though address 0 is ordinary, accessible
-/// linear memory on this target. Standard wasm32 linker layouts also never
-/// place real data at offset 0 (deliberately reserved as a "null guard" byte
-/// so `Option<&T>`-style niche optimizations stay sound), so the dump simply
-/// starts one byte in — nothing is lost, and every pointer constructed below
-/// is an ordinary non-null address.
-#[cfg(target_arch = "wasm32")]
-const MEMORY_BASE: usize = 1;
-
-/// Copy the whole current WASM linear memory image out as an owned buffer.
-///
-/// The QuickJS heap (and everything else this module owns — engine
-/// bookkeeping, the `JS_STATE` static, etc.) lives entirely in this module's
-/// own linear memory, so this is a complete, self-contained snapshot of
-/// engine state at the moment it's taken — useful for diagnostics/offline
-/// inspection. There is deliberately no `restoreMemory` counterpart: restoring
-/// a memory image into a *running* call corrupts that call's own return path
-/// (confirmed empirically — a same-instance dump-then-restore-then-continue
-/// round-trip crashes, not just a cross-instance one), and restoring via a
-/// deliberate trap instead runs straight into the Component Model's `may_enter`
-/// reentrance lock (wasmtime permanently refuses further calls into an
-/// instance after any trapped call — canonical-ABI spec behavior, confirmed at
-/// `wasmtime-46.0.1/src/runtime/component/func.rs:445`, not a wasmtime gap).
-/// Both are fundamental to how the component model defines call safety, not
-/// dwarf implementation bugs — see README's "Checkpoint / Restore" section.
-#[cfg(target_arch = "wasm32")]
-fn dump_linear_memory() -> Vec<u8> {
-    let total = core::arch::wasm32::memory_size(0) * WASM_PAGE_SIZE;
-    let len = total - MEMORY_BASE;
-    let mut buf: Vec<u8> = vec![0u8; len];
-    // NOT `.to_vec()`/`copy_from_slice`: those use `copy_nonoverlapping`,
-    // which is UB if source and destination overlap. Here `len` is close to
-    // the *entire* current heap size, so the destination allocation (made by
-    // the very allocator that owns the source memory) is very likely to
-    // overlap it. `ptr::copy` is memmove-safe — correct either way, so there's
-    // no need to reason about where the allocator actually put `buf`.
-    unsafe {
-        core::ptr::copy(MEMORY_BASE as *const u8, buf.as_mut_ptr(), len);
-    }
-    buf
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn dump_linear_memory() -> Vec<u8> {
-    unreachable!("__cqjs.snapshotMemory is only meaningful on wasm32")
-}
-
 /// Register all wit bindings on the js global scope.
 pub(crate) fn register(ctx: &rquickjs::Ctx<'_>, wit_def: Wit) -> rquickjs::Result<()> {
     register_stream_classes(ctx)?;
@@ -418,7 +365,6 @@ fn build_async_exports<'js>(
 /// - `makeStream(typeIndex)` — create a stream pair
 /// - `makeFuture(typeIndex)` — create a future pair
 /// - `getMemoryUsage()` — return QuickJS memory statistics
-/// - `snapshotMemory()` — dump this module's WASM linear memory as bytes
 /// - `runGc()` — trigger QuickJS garbage collection
 /// - `asyncExports` — object containing async export wrappers
 fn register_cqjs_namespace(ctx: &rquickjs::Ctx<'_>, wit_def: Wit) -> rquickjs::Result<()> {
@@ -466,22 +412,6 @@ fn register_cqjs_namespace(ctx: &rquickjs::Ctx<'_>, wit_def: Wit) -> rquickjs::R
                     obj.set("shapeCount", usage.shape_count)?;
                     obj.set("arrayCount", usage.array_count)?;
                     Ok(obj.into_value())
-                },
-            ),
-        )?,
-    )?;
-
-    // Memory snapshot for diagnostics/inspection (see `dump_linear_memory`
-    // above for why there is no restore counterpart).
-    ns.set(
-        "snapshotMemory",
-        Function::new(
-            ctx.clone(),
-            coerce_fn(
-                move |ctx: Ctx<'_>, _args: Rest<Value<'_>>| -> rquickjs::Result<Value<'_>> {
-                    let bytes = dump_linear_memory();
-                    let ta = rquickjs::TypedArray::<u8>::new(ctx.clone(), bytes)?;
-                    Ok(ta.into_value())
                 },
             ),
         )?,

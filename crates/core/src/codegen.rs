@@ -62,14 +62,6 @@ impl<'a> EmitContext<'a> {
         }
 
         self.line("const wit = globalThis.wit = {};");
-        // `__cqjs` isn't set up for a genuinely empty world (no imports or
-        // exports at all — nothing for register_cqjs_namespace to run for),
-        // so this line runs before it unconditionally as part of module
-        // evaluation. Guard it rather than assume it, same spirit as the
-        // Stream/Future constructors below only being emitted when used.
-        self.line(
-            "if (typeof __cqjs !== \"undefined\") { wit.Checkpoint = { snapshot: __cqjs.snapshotMemory }; }",
-        );
 
         let streams: Vec<_> = self.streams.iter().copied().collect();
         if !streams.is_empty() {
