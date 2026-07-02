@@ -73,7 +73,7 @@ jobs:
         env:
           RELEASES: ${{ steps.release_plz.outputs.releases }}
         run: |
-          tag=$(jq -r 'map(select(.package_name == "componentize-qjs-cli"))[0].tag // map(select((.tag // "") | startswith("v")))[0].tag // empty' <<< "$RELEASES")
+          tag=$(jq -r 'map(select(.package_name == "dwarf-cli"))[0].tag // map(select((.tag // "") | startswith("v")))[0].tag // empty' <<< "$RELEASES")
           if [ -z "$tag" ]; then
             echo "release-plz did not report a v* release tag; skipping CLI/runtime publish"
             echo "$RELEASES"

@@ -1,15 +1,25 @@
-# componentize-qjs
+# dwarf
 
-[![CI](https://github.com/andreiltd/componentize-qjs/actions/workflows/ci.yml/badge.svg)](https://github.com/andreiltd/componentize-qjs/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 Convert JavaScript source code into
-[WebAssembly components](https://component-model.bytecodealliance.org/) using
-[QuickJS](https://github.com/quickjs-ng/quickjs).
+[WebAssembly components](https://component-model.bytecodealliance.org/) —
+including genuine **WASI 0.3 (Preview 3)** components, async exports and all —
+using [QuickJS](https://github.com/quickjs-ng/quickjs). QuickJS-sized (not a
+~13 MB SpiderMonkey embedding) with full typed WIT bindings for arbitrary
+worlds (not just standard WASI).
+
+`dwarf` is a fork of
+[componentize-qjs](https://github.com/andreiltd/componentize-qjs)
+(Apache-2.0), rebranded and maintained here for the
+[Periapsis](https://github.com/apsis-io/periapsis) project family. See
+[NOTICES](NOTICES) for full upstream attribution and `git log` for
+commit-level history predating the fork. Local fork only for now — no
+published crate/npm package yet.
 
 ## Overview
 
-`componentize-qjs` takes a JavaScript source file and a
+`dwarf` takes a JavaScript source file and a
 [WIT](https://component-model.bytecodealliance.org/design/wit.html) definition,
 and produces a standalone WebAssembly component that can run on any
 component-model runtime (e.g. [Wasmtime](https://wasmtime.dev/)).
@@ -32,13 +42,8 @@ toolchain for PIC support in wasi-libc).
 
 ## Installation
 
-### Rust CLI (crates.io)
-
-```bash
-cargo install componentize-qjs-cli --locked
-```
-
-This installs the `componentize-qjs` command.
+Not published to crates.io or npm — this is a local-only fork. Build from
+source:
 
 ### Rust CLI (from source)
 
@@ -46,22 +51,9 @@ This installs the `componentize-qjs` command.
 cargo install --path . --locked
 ```
 
-### Prebuilt CLI binaries
+This installs the `dwarf` command.
 
-Prebuilt CLI archives are attached to each
-[GitHub release](https://github.com/andreiltd/componentize-qjs/releases) for
-Linux, macOS, and Windows.
-
-### npm package
-
-```bash
-npm install componentize-qjs
-```
-
-This pulls in the right prebuilt native binding for your platform via the
-`@andreiltd/componentize-qjs-binding-*` optional dependencies.
-
-If you want to build from source run:
+### npm package (from source)
 
 ```bash
 cd npm && npm install && npm run build
@@ -93,7 +85,7 @@ export function greet(name) {
 **3. Build the component:**
 
 ```bash
-componentize-qjs --wit hello.wit --js hello.js -o hello.wasm
+dwarf --wit hello.wit --js hello.js -o hello.wasm
 ```
 
 **4. Run it:**
@@ -103,7 +95,7 @@ wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
 # "Hello, World!"
 ```
 
-The built-in runtime published with componentize-qjs includes component-model
+The built-in runtime published with dwarf includes component-model
 async support. Pass `--sync` to embed the built-in non-async runtime instead,
 producing components that run on hosts without component-model async support. A
 custom runtime can also be supplied with `--runtime`.
@@ -111,7 +103,7 @@ custom runtime can also be supplied with `--runtime`.
 ## CLI Reference
 
 ```
-componentize-qjs [OPTIONS] --wit <WIT> --js <JS>
+dwarf [OPTIONS] --wit <WIT> --js <JS>
 ```
 
 | Flag | Short | Description |
@@ -396,15 +388,15 @@ The npm package exposes both a CLI and a programmatic API.
 ### CLI
 
 ```bash
-npx componentize-qjs --wit hello.wit --js hello.js -o hello.wasm
+npx dwarf --wit hello.wit --js hello.js -o hello.wasm
 ```
 
-(Or, if you installed the package globally, just `componentize-qjs ...`.)
+(Or, if you installed the package globally, just `dwarf ...`.)
 
 ### Usage
 
 ```js
-import { componentize } from "componentize-qjs";
+import { componentize } from "dwarf";
 
 const { component } = await componentize({
     witPath: "hello.wit",
@@ -421,7 +413,9 @@ The `runtime` option is a path to a custom QuickJS runtime Wasm module.
 
 ## Acknowledgments
 
-This project builds on ideas and code from:
+`dwarf` is a fork of [componentize-qjs](https://github.com/andreiltd/componentize-qjs)
+by Andrei (andreiltd) — nearly all functional code originates there; see
+[NOTICES](NOTICES). componentize-qjs itself builds on ideas and code from:
 
 - [ComponentizeJS](https://github.com/dicej/componentize-js) by Joel Dice
 - [lua-component-demo](https://github.com/alexcrichton/lua-component-demo) by Alex Crichton

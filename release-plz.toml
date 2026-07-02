@@ -3,24 +3,24 @@
 # Runtime is compiled to wasm32-wasip2 and embedded; napi is for npm only.
 
 [[package]]
-name = "componentize-qjs-runtime"
+name = "dwarf-runtime"
 release = false
 publish = false
 
 [[package]]
-name = "componentize-qjs-napi"
+name = "dwarf-napi"
 release = false
 publish = false
 
 [[package]]
-name = "componentize-qjs"
+name = "dwarf"
 publish_allow_dirty = true
 git_tag_enable = false
 git_release_enable = false
 
 [[package]]
-name = "componentize-qjs-cli"
-changelog_include = ["componentize-qjs"]
+name = "dwarf-cli"
+changelog_include = ["dwarf"]
 git_tag_name = "v{{ version }}"
 git_release_name = "v{{ version }}"
 publish_allow_dirty = true

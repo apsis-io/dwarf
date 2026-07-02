@@ -6,7 +6,7 @@ destination_dir="$2"
 shift 2
 
 rm -rf crates/core/prebuilt "$destination_dir" "$target_dir"
-COMPONENTIZE_QJS_RUNTIME_AUDITABLE=1 cargo build --release -p componentize-qjs --target-dir "$target_dir"
+DWARF_RUNTIME_AUDITABLE=1 cargo build --release -p dwarf --target-dir "$target_dir"
 mkdir -p "$destination_dir"
 
 for mapping in "$@"; do

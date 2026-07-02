@@ -1,4 +1,4 @@
-use componentize_qjs::{ComponentizeOpts, Runtime, componentize};
+use dwarf_core::{ComponentizeOpts, Runtime, componentize};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -14,7 +14,7 @@ use oxc_span::SourceType;
 use std::fs;
 
 #[derive(Parser)]
-#[command(name = "componentize-qjs")]
+#[command(name = "dwarf")]
 #[command(about = "Convert JavaScript to WebAssembly components using QuickJS")]
 pub struct CliArgs {
     /// Path to the WIT file or directory
@@ -63,10 +63,10 @@ pub struct CliArgs {
     pub runtime: Option<std::path::PathBuf>,
 }
 
-/// Run the componentize-qjs CLI with the given arguments.
+/// Run the dwarf CLI with the given arguments.
 pub async fn run(args: Vec<String>) -> Result<()> {
     let args =
-        CliArgs::try_parse_from(std::iter::once("componentize-qjs".to_string()).chain(args))?;
+        CliArgs::try_parse_from(std::iter::once("dwarf".to_string()).chain(args))?;
 
     if !args.wit.exists() {
         anyhow::bail!("WIT file/directory not found: {}", args.wit.display());
@@ -114,7 +114,7 @@ pub async fn run(args: Vec<String>) -> Result<()> {
         js_source
     };
 
-    println!("componentize-qjs");
+    println!("dwarf");
     println!("  WIT:    {}", args.wit.display());
     println!("  JS:     {}", args.js.display());
     println!("  Output: {}", args.output.display());

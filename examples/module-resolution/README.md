@@ -9,7 +9,7 @@ This example shows JavaScript imports resolved during Wizer initialization:
 Build it from the repository root:
 
 ```bash
-componentize-qjs \
+dwarf \
   --wit examples/module-resolution/package.wit \
   --js examples/module-resolution/main.js \
   --module-root examples/module-resolution \

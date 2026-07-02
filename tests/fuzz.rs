@@ -17,7 +17,7 @@ use std::sync::{Mutex, OnceLock};
 use quickcheck::{Arbitrary, Gen, TestResult, quickcheck};
 use wasmtime::component::Val;
 
-use componentize_qjs::{ComponentizeOpts, Runtime};
+use dwarf_core::{ComponentizeOpts, Runtime};
 
 const MAX_SAFE_INT: i64 = (1i64 << 53) - 1;
 const MEM_TOLERANCE: i64 = 1024;
@@ -266,7 +266,7 @@ mod fuzz {
                 .enable_all()
                 .build()
                 .unwrap();
-            rt.block_on(componentize_qjs::componentize(&opts)).unwrap()
+            rt.block_on(dwarf_core::componentize(&opts)).unwrap()
         })
     }
 
@@ -471,7 +471,7 @@ mod fuzz_async {
                 .enable_all()
                 .build()
                 .unwrap();
-            rt.block_on(componentize_qjs::componentize(&opts)).unwrap()
+            rt.block_on(dwarf_core::componentize(&opts)).unwrap()
         })
     }
 

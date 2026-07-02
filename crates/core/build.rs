@@ -11,7 +11,7 @@ const WASI_SKD_DL_URL: &str = "https://github.com/WebAssembly/wasi-sdk/releases/
 
 const BINARYEN_VERSION: &str = "130";
 const BINARYEN_DL_URL: &str = "https://github.com/WebAssembly/binaryen/releases/download";
-const RUNTIME_AUDITABLE_ENV: &str = "COMPONENTIZE_QJS_RUNTIME_AUDITABLE";
+const RUNTIME_AUDITABLE_ENV: &str = "DWARF_RUNTIME_AUDITABLE";
 const MAX_ARCHIVE_BYTES: u64 = 1_000_000_000;
 
 #[derive(Clone, Copy)]
@@ -283,7 +283,7 @@ fn build_runtime(out_dir: &Path, build: RuntimeBuild, profile: &CargoProfile) ->
         .arg("build")
         .arg("--target")
         .arg(target)
-        .arg("--package=componentize-qjs-runtime")
+        .arg("--package=dwarf-runtime")
         .arg("--no-default-features")
         .env("CARGO_TARGET_DIR", &target_dir)
         .env(format!("CARGO_TARGET_{upcase}_RUSTFLAGS"), rustflags)
@@ -313,7 +313,7 @@ fn build_runtime(out_dir: &Path, build: RuntimeBuild, profile: &CargoProfile) ->
     let runtime_src = target_dir
         .join(target)
         .join(&profile.name)
-        .join("componentize_qjs_runtime.wasm");
+        .join("dwarf_runtime.wasm");
 
     let runtime_dst = out_dir.join(build.filename());
 

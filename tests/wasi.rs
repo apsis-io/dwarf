@@ -1,4 +1,4 @@
-//! WASI integration tests for componentize-qjs
+//! WASI integration tests for dwarf
 mod common;
 
 use std::path::PathBuf;

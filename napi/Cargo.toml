@@ -1,11 +1,9 @@
 [package]
-name = "componentize-qjs-napi"
+name = "dwarf-napi"
 version.workspace = true
 edition.workspace = true
-description = "Node.js bindings for componentize-qjs"
+description = "Node.js bindings for dwarf"
 license.workspace = true
-repository.workspace = true
-homepage.workspace = true
 publish = false
 
 [lib]
@@ -13,8 +11,8 @@ crate-type = ["cdylib"]
 doctest = false
 
 [dependencies]
-componentize-qjs.workspace = true
-componentize-qjs-cli.workspace = true
+dwarf-core.workspace = true
+dwarf.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 napi = { version = "3", features = ["tokio_rt"] }
@@ -27,10 +25,10 @@ napi-build = "2"
 [features]
 default = ["component-model-async"]
 opt-size = [
-    "componentize-qjs/opt-size",
-    "componentize-qjs-cli/opt-size"
+    "dwarf-core/opt-size",
+    "dwarf/opt-size"
 ]
 component-model-async = [
-    "componentize-qjs/component-model-async",
-    "componentize-qjs-cli/component-model-async",
+    "dwarf-core/component-model-async",
+    "dwarf/component-model-async",
 ]

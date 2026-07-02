@@ -1,11 +1,9 @@
 [package]
-name = "componentize-qjs-runtime"
+name = "dwarf-runtime"
 version.workspace = true
 edition = "2024"
-description = "QuickJS runtime for componentize-qjs"
+description = "QuickJS runtime for dwarf"
 license.workspace = true
-repository.workspace = true
-homepage.workspace = true
 publish = false
 
 [lib]

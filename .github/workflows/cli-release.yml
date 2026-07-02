@@ -95,9 +95,9 @@ jobs:
         run: sudo apt-get install -y musl-tools
 
       - name: Build CLI
-        run: cargo build --release --bin componentize-qjs --target ${{ matrix.target }}
+        run: cargo build --release --bin dwarf --target ${{ matrix.target }}
         env:
-          COMPONENTIZE_QJS_RUNTIME_AUDITABLE: 1
+          DWARF_RUNTIME_AUDITABLE: 1
 
       - name: Package CLI
         shell: bash
@@ -112,12 +112,12 @@ jobs:
           }
 
           version="${RELEASE_TAG#v}"
-          pkg="componentize-qjs-v${version}-${{ matrix.target }}"
+          pkg="dwarf-v${version}-${{ matrix.target }}"
           mkdir -p "dist/${pkg}"
           if [[ "${{ matrix.target }}" == *windows* ]]; then
-            cp "target/${{ matrix.target }}/release/componentize-qjs.exe" "dist/${pkg}/"
+            cp "target/${{ matrix.target }}/release/dwarf.exe" "dist/${pkg}/"
           else
-            cp "target/${{ matrix.target }}/release/componentize-qjs" "dist/${pkg}/"
+            cp "target/${{ matrix.target }}/release/dwarf" "dist/${pkg}/"
           fi
           cp README.md "dist/${pkg}/"
           if [[ "${{ matrix.archive }}" == "zip" ]]; then

@@ -56,7 +56,7 @@ impl UserModule {
 }
 
 pub(crate) fn evaluate_shim(ctx: &rquickjs::Ctx<'_>, shim: &str) -> Result<(), String> {
-    evaluate(ctx, "componentize-qjs:shim.js", shim)
+    evaluate(ctx, "dwarf:shim.js", shim)
         .map(|_| ())
         .map_err(|e| format!("Failed to evaluate generated shim module: {e}"))
 }
@@ -68,7 +68,7 @@ pub(crate) fn evaluate_user(
 ) -> Result<(), String> {
     let namespace = evaluate(
         ctx,
-        entry_path.unwrap_or("componentize-qjs:user.js"),
+        entry_path.unwrap_or("dwarf:user.js"),
         js_source,
     )
     .map_err(|e| format!("Failed to evaluate user JavaScript module: {e}"))?;

@@ -122,7 +122,7 @@ pub async fn componentize(opts: &ComponentizeOpts<'_>) -> Result<Vec<u8>> {
     let pre_wizer_component = wit_component::Linker::default()
         .validate(true)
         .library(
-            "componentize_qjs_runtime.wasm",
+            "dwarf_runtime.wasm",
             runtime_wasm(opts.runtime),
             false,
         )?

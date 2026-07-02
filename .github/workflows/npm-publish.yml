@@ -107,7 +107,7 @@ jobs:
         working-directory: npm
         run: npx napi build --manifest-path ../napi/Cargo.toml --platform --target ${{ matrix.settings.target }} --js index.js --dts index.d.ts -o . --release
         env:
-          COMPONENTIZE_QJS_RUNTIME_AUDITABLE: 1
+          DWARF_RUNTIME_AUDITABLE: 1
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -1,4 +1,4 @@
-//! Async component model tests for componentize-qjs.
+//! Async component model tests for dwarf.
 #![cfg(feature = "component-model-async")]
 
 mod common;

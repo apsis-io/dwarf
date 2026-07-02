@@ -1,4 +1,4 @@
-//! CLI integration tests for componentize-qjs
+//! CLI integration tests for dwarf
 mod common;
 
 use std::fs;
@@ -9,15 +9,15 @@ use wasmtime::Store;
 use wasmtime::component::{Component, Linker, ResourceTable, Val};
 use wasmtime_wasi::WasiCtxBuilder;
 
-use common::{ComponentInstance, WasiCtxState, componentize_qjs, engine, run_cli_build};
+use common::{ComponentInstance, WasiCtxState, dwarf_cmd, engine, run_cli_build};
 
 #[test]
 fn test_cli_help() {
-    componentize_qjs()
+    dwarf_cmd()
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Usage: componentize-qjs"))
+        .stdout(predicate::str::contains("Usage: dwarf"))
         .stdout(predicate::str::contains("--opt-size"))
         .stdout(predicate::str::contains("--sync"))
         .stdout(predicate::str::contains("--module-root <PATH>"))
@@ -26,7 +26,7 @@ fn test_cli_help() {
 
 #[test]
 fn test_cli_errors() {
-    componentize_qjs()
+    dwarf_cmd()
         .arg("--wit")
         .arg("nonexistent.wit")
         .arg("--js")
@@ -39,7 +39,7 @@ fn test_cli_errors() {
     let wit_path = dir.path().join("test.wit");
     fs::write(&wit_path, "package test:test; world test {}").unwrap();
 
-    componentize_qjs()
+    dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
         .arg("--js")
@@ -51,9 +51,9 @@ fn test_cli_errors() {
     let js_path = dir.path().join("test.js");
     fs::write(&js_path, "export {};").unwrap();
     let runtime_path = dir.path().join("runtime.wasm");
-    fs::write(&runtime_path, componentize_qjs::default_runtime_wasm()).unwrap();
+    fs::write(&runtime_path, dwarf_core::default_runtime_wasm()).unwrap();
 
-    componentize_qjs()
+    dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
         .arg("--js")
@@ -155,7 +155,7 @@ fn test_cli_resolves_relative_import() {
     .unwrap();
     fs::write(&dep_path, "export const value = 41;").unwrap();
 
-    componentize_qjs()
+    dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
         .arg("--js")
@@ -197,7 +197,7 @@ fn test_cli_resolves_package_import_from_module_root() {
     fs::write(pkg_dir.join("package.json"), r#"{"main":"index.js"}"#).unwrap();
     fs::write(pkg_dir.join("index.js"), "export const value = 41;").unwrap();
 
-    componentize_qjs()
+    dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
         .arg("--js")
@@ -273,7 +273,7 @@ fn test_cli_resolves_nested_imports_and_caches_modules() {
     )
     .unwrap();
 
-    componentize_qjs()
+    dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
         .arg("--js")
@@ -308,7 +308,7 @@ fn test_cli_reports_missing_import() {
     )
     .unwrap();
 
-    componentize_qjs()
+    dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
         .arg("--js")
@@ -394,9 +394,9 @@ fn test_cli_custom_runtime_file() {
     )
     .unwrap();
     fs::write(&js_path, "export function add(a, b) { return a + b; }").unwrap();
-    fs::write(&runtime_path, componentize_qjs::default_runtime_wasm()).unwrap();
+    fs::write(&runtime_path, dwarf_core::default_runtime_wasm()).unwrap();
 
-    componentize_qjs()
+    dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
         .arg("--js")

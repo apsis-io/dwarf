@@ -1,7 +1,7 @@
 # Runtime Intrinsics Reference
 
 This document describes the bridge identifiers and module-state conventions
-that componentize-qjs uses to connect WIT with quickjs. These are internal
+that dwarf uses to connect WIT with quickjs. These are internal
 implementation details; user code should be written as an ES module and should
 prefer explicit `import`/`export` syntax plus the public `wit.*` API where
 possible.

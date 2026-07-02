@@ -108,16 +108,16 @@ pub async fn componentize(opts: ComponentizeOpts) -> Result<ComponentizeResult> 
         None => opts.runtime_bytes.as_ref().map(|bytes| bytes.to_vec()),
     };
     let runtime = match custom_runtime.as_deref() {
-        Some(wasm) => componentize_qjs::Runtime::Custom(wasm),
+        Some(wasm) => dwarf_core::Runtime::Custom(wasm),
         None => match (sync, opt_size) {
-            (true, true) => componentize_qjs::Runtime::OptSizeSync,
-            (true, false) => componentize_qjs::Runtime::DefaultSync,
-            (false, true) => componentize_qjs::Runtime::OptSize,
-            (false, false) => componentize_qjs::Runtime::default(),
+            (true, true) => dwarf_core::Runtime::OptSizeSync,
+            (true, false) => dwarf_core::Runtime::DefaultSync,
+            (false, true) => dwarf_core::Runtime::OptSize,
+            (false, false) => dwarf_core::Runtime::default(),
         },
     };
 
-    let opts = componentize_qjs::ComponentizeOpts {
+    let opts = dwarf_core::ComponentizeOpts {
         wit_path: &wit_path,
         js_source: &opts.js_source,
         js_path: js_path.as_deref(),
@@ -128,7 +128,7 @@ pub async fn componentize(opts: ComponentizeOpts) -> Result<ComponentizeResult> 
         runtime,
     };
 
-    let component = componentize_qjs::componentize(&opts)
+    let component = dwarf_core::componentize(&opts)
         .await
         .map_err(|e| Error::new(Status::GenericFailure, format!("{e:#}")))?;
 
@@ -142,7 +142,7 @@ pub async fn componentize(opts: ComponentizeOpts) -> Result<ComponentizeResult> 
 /// Returns `true` if the command succeeded, `false` otherwise.
 #[napi]
 pub async fn run_cli(args: Vec<String>) -> Result<bool> {
-    match componentize_qjs_cli::cli::run(args).await {
+    match dwarf_cli::cli::run(args).await {
         Ok(()) => Ok(true),
         Err(e) => {
             if let Some(clap_err) = e.downcast_ref::<clap::Error>() {

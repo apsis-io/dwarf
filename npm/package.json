@@ -1,21 +1,12 @@
 {
-  "name": "componentize-qjs",
+  "name": "dwarf",
   "version": "0.1.0",
-  "description": "Convert JavaScript to WebAssembly components using QuickJS",
+  "description": "Convert JavaScript to WebAssembly components (WASI Preview 3) using QuickJS",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/andreiltd/componentize-qjs.git",
-    "directory": "npm"
-  },
-  "homepage": "https://github.com/andreiltd/componentize-qjs",
-  "bugs": {
-    "url": "https://github.com/andreiltd/componentize-qjs/issues"
-  },
   "main": "index.js",
   "types": "index.d.ts",
   "bin": {
-    "componentize-qjs": "bin/componentize-qjs"
+    "dwarf": "bin/dwarf"
   },
   "files": [
     "bin",
@@ -30,15 +21,15 @@
     "test": "vitest run --dir ./test"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3",
-    "vitest": "^4.0.0"
+    "@napi-rs/cli": "^3.7.2",
+    "vitest": "^4.1.9"
   },
   "publishConfig": {
     "access": "public"
   },
   "napi": {
-    "binaryName": "componentize-qjs",
-    "packageName": "@andreiltd/componentize-qjs-binding",
+    "binaryName": "dwarf",
+    "packageName": "@apsis-io/dwarf-binding",
     "targets": [
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",

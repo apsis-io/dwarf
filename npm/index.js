@@ -70,13 +70,13 @@ function requireNative() {
   } else if (process.platform === 'android') {
     if (process.arch === 'arm64') {
       try {
-        return require('./componentize-qjs.android-arm64.node')
+        return require('./dwarf.android-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-android-arm64')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-android-arm64/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-android-arm64')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-android-arm64/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -86,13 +86,13 @@ function requireNative() {
       }
     } else if (process.arch === 'arm') {
       try {
-        return require('./componentize-qjs.android-arm-eabi.node')
+        return require('./dwarf.android-arm-eabi.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-android-arm-eabi')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-android-arm-eabi/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-android-arm-eabi')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-android-arm-eabi/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -107,13 +107,13 @@ function requireNative() {
     if (process.arch === 'x64') {
       if (process.config?.variables?.shlib_suffix === 'dll.a' || process.config?.variables?.node_target_type === 'shared_library') {
         try {
-        return require('./componentize-qjs.win32-x64-gnu.node')
+        return require('./dwarf.win32-x64-gnu.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-win32-x64-gnu')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-win32-x64-gnu/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-win32-x64-gnu')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-win32-x64-gnu/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -123,13 +123,13 @@ function requireNative() {
       }
       } else {
         try {
-        return require('./componentize-qjs.win32-x64-msvc.node')
+        return require('./dwarf.win32-x64-msvc.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-win32-x64-msvc')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-win32-x64-msvc/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-win32-x64-msvc')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-win32-x64-msvc/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -140,13 +140,13 @@ function requireNative() {
       }
     } else if (process.arch === 'ia32') {
       try {
-        return require('./componentize-qjs.win32-ia32-msvc.node')
+        return require('./dwarf.win32-ia32-msvc.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-win32-ia32-msvc')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-win32-ia32-msvc/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-win32-ia32-msvc')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-win32-ia32-msvc/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -156,13 +156,13 @@ function requireNative() {
       }
     } else if (process.arch === 'arm64') {
       try {
-        return require('./componentize-qjs.win32-arm64-msvc.node')
+        return require('./dwarf.win32-arm64-msvc.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-win32-arm64-msvc')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-win32-arm64-msvc/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-win32-arm64-msvc')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-win32-arm64-msvc/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -175,13 +175,13 @@ function requireNative() {
     }
   } else if (process.platform === 'darwin') {
     try {
-      return require('./componentize-qjs.darwin-universal.node')
+      return require('./dwarf.darwin-universal.node')
     } catch (e) {
       loadErrors.push(e)
     }
     try {
-      const binding = require('@andreiltd/componentize-qjs-binding-darwin-universal')
-      const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-darwin-universal/package.json').version
+      const binding = require('@apsis-io/dwarf-binding-darwin-universal')
+      const bindingPackageVersion = require('@apsis-io/dwarf-binding-darwin-universal/package.json').version
       if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
         throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
       }
@@ -191,13 +191,13 @@ function requireNative() {
     }
     if (process.arch === 'x64') {
       try {
-        return require('./componentize-qjs.darwin-x64.node')
+        return require('./dwarf.darwin-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-darwin-x64')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-darwin-x64/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-darwin-x64')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-darwin-x64/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -207,13 +207,13 @@ function requireNative() {
       }
     } else if (process.arch === 'arm64') {
       try {
-        return require('./componentize-qjs.darwin-arm64.node')
+        return require('./dwarf.darwin-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-darwin-arm64')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-darwin-arm64/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-darwin-arm64')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-darwin-arm64/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -227,13 +227,13 @@ function requireNative() {
   } else if (process.platform === 'freebsd') {
     if (process.arch === 'x64') {
       try {
-        return require('./componentize-qjs.freebsd-x64.node')
+        return require('./dwarf.freebsd-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-freebsd-x64')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-freebsd-x64/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-freebsd-x64')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-freebsd-x64/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -243,13 +243,13 @@ function requireNative() {
       }
     } else if (process.arch === 'arm64') {
       try {
-        return require('./componentize-qjs.freebsd-arm64.node')
+        return require('./dwarf.freebsd-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-freebsd-arm64')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-freebsd-arm64/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-freebsd-arm64')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-freebsd-arm64/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -264,13 +264,13 @@ function requireNative() {
     if (process.arch === 'x64') {
       if (isMusl()) {
         try {
-          return require('./componentize-qjs.linux-x64-musl.node')
+          return require('./dwarf.linux-x64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-x64-musl')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-x64-musl/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-x64-musl')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-x64-musl/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -280,13 +280,13 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./componentize-qjs.linux-x64-gnu.node')
+          return require('./dwarf.linux-x64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-x64-gnu')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-x64-gnu/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-x64-gnu')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-x64-gnu/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -298,13 +298,13 @@ function requireNative() {
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
         try {
-          return require('./componentize-qjs.linux-arm64-musl.node')
+          return require('./dwarf.linux-arm64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-arm64-musl')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-arm64-musl/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-arm64-musl')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-arm64-musl/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -314,13 +314,13 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./componentize-qjs.linux-arm64-gnu.node')
+          return require('./dwarf.linux-arm64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-arm64-gnu')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-arm64-gnu/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-arm64-gnu')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-arm64-gnu/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -332,13 +332,13 @@ function requireNative() {
     } else if (process.arch === 'arm') {
       if (isMusl()) {
         try {
-          return require('./componentize-qjs.linux-arm-musleabihf.node')
+          return require('./dwarf.linux-arm-musleabihf.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-arm-musleabihf')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-arm-musleabihf/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-arm-musleabihf')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-arm-musleabihf/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -348,13 +348,13 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./componentize-qjs.linux-arm-gnueabihf.node')
+          return require('./dwarf.linux-arm-gnueabihf.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-arm-gnueabihf')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-arm-gnueabihf/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-arm-gnueabihf')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-arm-gnueabihf/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -366,13 +366,13 @@ function requireNative() {
     } else if (process.arch === 'loong64') {
       if (isMusl()) {
         try {
-          return require('./componentize-qjs.linux-loong64-musl.node')
+          return require('./dwarf.linux-loong64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-loong64-musl')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-loong64-musl/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-loong64-musl')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-loong64-musl/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -382,13 +382,13 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./componentize-qjs.linux-loong64-gnu.node')
+          return require('./dwarf.linux-loong64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-loong64-gnu')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-loong64-gnu/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-loong64-gnu')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-loong64-gnu/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -400,13 +400,13 @@ function requireNative() {
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
         try {
-          return require('./componentize-qjs.linux-riscv64-musl.node')
+          return require('./dwarf.linux-riscv64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-riscv64-musl')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-riscv64-musl/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-riscv64-musl')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-riscv64-musl/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -416,13 +416,13 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./componentize-qjs.linux-riscv64-gnu.node')
+          return require('./dwarf.linux-riscv64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@andreiltd/componentize-qjs-binding-linux-riscv64-gnu')
-          const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-riscv64-gnu/package.json').version
+          const binding = require('@apsis-io/dwarf-binding-linux-riscv64-gnu')
+          const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-riscv64-gnu/package.json').version
           if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
             throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
@@ -433,13 +433,13 @@ function requireNative() {
       }
     } else if (process.arch === 'ppc64') {
       try {
-        return require('./componentize-qjs.linux-ppc64-gnu.node')
+        return require('./dwarf.linux-ppc64-gnu.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-linux-ppc64-gnu')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-ppc64-gnu/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-linux-ppc64-gnu')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-ppc64-gnu/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -449,13 +449,13 @@ function requireNative() {
       }
     } else if (process.arch === 's390x') {
       try {
-        return require('./componentize-qjs.linux-s390x-gnu.node')
+        return require('./dwarf.linux-s390x-gnu.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-linux-s390x-gnu')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-linux-s390x-gnu/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-linux-s390x-gnu')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-linux-s390x-gnu/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -469,13 +469,13 @@ function requireNative() {
   } else if (process.platform === 'openharmony') {
     if (process.arch === 'arm64') {
       try {
-        return require('./componentize-qjs.openharmony-arm64.node')
+        return require('./dwarf.openharmony-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-openharmony-arm64')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-openharmony-arm64/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-openharmony-arm64')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-openharmony-arm64/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -485,13 +485,13 @@ function requireNative() {
       }
     } else if (process.arch === 'x64') {
       try {
-        return require('./componentize-qjs.openharmony-x64.node')
+        return require('./dwarf.openharmony-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-openharmony-x64')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-openharmony-x64/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-openharmony-x64')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-openharmony-x64/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -501,13 +501,13 @@ function requireNative() {
       }
     } else if (process.arch === 'arm') {
       try {
-        return require('./componentize-qjs.openharmony-arm.node')
+        return require('./dwarf.openharmony-arm.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@andreiltd/componentize-qjs-binding-openharmony-arm')
-        const bindingPackageVersion = require('@andreiltd/componentize-qjs-binding-openharmony-arm/package.json').version
+        const binding = require('@apsis-io/dwarf-binding-openharmony-arm')
+        const bindingPackageVersion = require('@apsis-io/dwarf-binding-openharmony-arm/package.json').version
         if (bindingPackageVersion !== '0.1.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           throw new Error(`Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
@@ -529,7 +529,7 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
   let wasiBinding = null
   let wasiBindingError = null
   try {
-    wasiBinding = require('./componentize-qjs.wasi.cjs')
+    wasiBinding = require('./dwarf.wasi.cjs')
     nativeBinding = wasiBinding
   } catch (err) {
     if (process.env.NAPI_RS_FORCE_WASI) {
@@ -538,7 +538,7 @@ if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
   }
   if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
     try {
-      wasiBinding = require('@andreiltd/componentize-qjs-binding-wasm32-wasi')
+      wasiBinding = require('@apsis-io/dwarf-binding-wasm32-wasi')
       nativeBinding = wasiBinding
     } catch (err) {
       if (process.env.NAPI_RS_FORCE_WASI) {

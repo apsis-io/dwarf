@@ -1,4 +1,4 @@
-//! Shared test harness for componentize-qjs integration tests.
+//! Shared test harness for dwarf integration tests.
 #![allow(dead_code)]
 
 use std::fs;
@@ -11,7 +11,7 @@ use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use componentize_qjs::{ComponentizeOpts, Runtime};
+use dwarf_core::{ComponentizeOpts, Runtime};
 
 pub struct WasiCtxState {
     pub wasi: WasiCtx,
@@ -158,7 +158,7 @@ impl TestCase {
             .enable_all()
             .build()?;
 
-        let wasm = rt.block_on(componentize_qjs::componentize(&opts))?;
+        let wasm = rt.block_on(dwarf_core::componentize(&opts))?;
         ComponentInstance::from_wasm_with_stdin(wasm, self.env_vars, self.stdin, self.expectations)
     }
 
@@ -185,7 +185,7 @@ impl TestCase {
             runtime: Runtime::Default,
         };
 
-        let wasm = componentize_qjs::componentize(&opts).await?;
+        let wasm = dwarf_core::componentize(&opts).await?;
 
         AsyncComponentInstance::from_wasm_with_stdin(wasm, self.env_vars, self.stdin).await
     }
@@ -288,8 +288,8 @@ impl ComponentInstance {
     }
 }
 
-pub fn componentize_qjs() -> assert_cmd::Command {
-    assert_cmd::cargo::cargo_bin_cmd!("componentize-qjs")
+pub fn dwarf_cmd() -> assert_cmd::Command {
+    assert_cmd::cargo::cargo_bin_cmd!("dwarf")
 }
 
 pub struct AsyncComponentInstance {
@@ -390,7 +390,7 @@ pub fn run_cli_build(wit: &str, js: &str, extra_args: &[&str]) -> (PathBuf, Temp
 
     let output = dir.path().join("output.wasm");
 
-    let mut cmd = componentize_qjs();
+    let mut cmd = dwarf_cmd();
     cmd.arg("--wit")
         .arg(&wit_path)
         .arg("--js")

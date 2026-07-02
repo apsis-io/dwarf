@@ -14,7 +14,7 @@ runs:
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        cargo build -p componentize-qjs
+        cargo build -p dwarf
         mkdir -p crates/core/prebuilt
         for f in runtime.wasm runtime-opt-size.wasm runtime-sync.wasm runtime-opt-size-sync.wasm; do
           src=$(find target -path "*/out/$f" -type f | sort | tail -n 1)

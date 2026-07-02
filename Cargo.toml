@@ -8,12 +8,10 @@ version = "0.4.1"
 edition = "2024"
 rust-version = "1.94"
 license = "Apache-2.0"
-repository = "https://github.com/andreiltd/componentize-qjs"
-homepage = "https://github.com/andreiltd/componentize-qjs"
 
 [workspace.dependencies]
-componentize-qjs = { path = "crates/core", version = "0.4.1", default-features = false }
-componentize-qjs-cli = { path = ".", version = "0.4.1", default-features = false }
+dwarf-core = { path = "crates/core", version = "0.4.1", default-features = false }
+dwarf = { path = ".", version = "0.4.1", default-features = false }
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", default-features = false, features = ["rt", "macros"] }
@@ -22,19 +20,17 @@ wasmtime-wasi = { version = "46", default-features = false, features = ["p2", "p
 wit-parser = "0.252"
 
 [package]
-name = "componentize-qjs-cli"
+name = "dwarf"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "CLI for converting JavaScript to WebAssembly components using QuickJS"
+description = "Convert JavaScript to WebAssembly components (WASI Preview 3) using QuickJS"
 license.workspace = true
-repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/componentize-qjs-v{ version }-{ target }.{ archive-format }"
-bin-dir = "componentize-qjs-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-url = "{ repo }/releases/download/v{ version }/dwarf-v{ version }-{ target }.{ archive-format }"
+bin-dir = "dwarf-v{ version }-{ target }/{ bin }{ binary-ext }"
 pkg-fmt = "tgz"
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
@@ -44,16 +40,16 @@ pkg-fmt = "zip"
 pkg-fmt = "zip"
 
 [lib]
-name = "componentize_qjs_cli"
+name = "dwarf_cli"
 path = "src/lib.rs"
 
 [[bin]]
-name = "componentize-qjs"
+name = "dwarf"
 path = "src/main.rs"
 doc = false
 
 [dependencies]
-componentize-qjs.workspace = true
+dwarf-core.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 tokio.workspace = true
@@ -65,8 +61,8 @@ oxc_span = "0.138.0"
 
 [features]
 default = ["component-model-async"]
-opt-size = ["componentize-qjs/opt-size"]
-component-model-async = ["componentize-qjs/component-model-async"]
+opt-size = ["dwarf-core/opt-size"]
+component-model-async = ["dwarf-core/component-model-async"]
 
 [dev-dependencies]
 assert_cmd = "2.0"

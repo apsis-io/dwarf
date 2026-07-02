@@ -1,4 +1,4 @@
-//! WIT type integration tests for componentize-qjs
+//! WIT type integration tests for dwarf
 mod common;
 
 use wasmtime::component::Val;
@@ -1643,7 +1643,7 @@ fn test_exported_resource() {
     )
     .unwrap();
 
-    let opts = componentize_qjs::ComponentizeOpts {
+    let opts = dwarf_core::ComponentizeOpts {
         wit_path: &wit_path,
         js_source: r#"
             class Counter {
@@ -1658,7 +1658,7 @@ fn test_exported_resource() {
         world_name: None,
         stub_wasi: true,
         disable_gc: false,
-        runtime: componentize_qjs::Runtime::Default,
+        runtime: dwarf_core::Runtime::Default,
     };
 
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -1666,7 +1666,7 @@ fn test_exported_resource() {
         .build()
         .unwrap();
 
-    let wasm = rt.block_on(componentize_qjs::componentize(&opts)).unwrap();
+    let wasm = rt.block_on(dwarf_core::componentize(&opts)).unwrap();
 
     // Component builds successfully with resource types
     let engine = common::engine();
@@ -1759,7 +1759,7 @@ fn test_static_resource_method_in_interface() {
     )
     .unwrap();
 
-    let opts = componentize_qjs::ComponentizeOpts {
+    let opts = dwarf_core::ComponentizeOpts {
         wit_path: &wit_path,
         js_source: r#"
             class Widget {
@@ -1774,7 +1774,7 @@ fn test_static_resource_method_in_interface() {
         world_name: None,
         stub_wasi: true,
         disable_gc: false,
-        runtime: componentize_qjs::Runtime::Default,
+        runtime: dwarf_core::Runtime::Default,
     };
 
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -1782,7 +1782,7 @@ fn test_static_resource_method_in_interface() {
         .build()
         .unwrap();
 
-    let wasm = rt.block_on(componentize_qjs::componentize(&opts)).unwrap();
+    let wasm = rt.block_on(dwarf_core::componentize(&opts)).unwrap();
 
     let engine = common::engine();
     let component = wasmtime::component::Component::new(engine, &wasm).unwrap();
