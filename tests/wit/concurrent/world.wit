@@ -1,0 +1,10 @@
+package test:concurrent;
+
+interface api {
+  delay-echo: async func(id: u32, delay-ms: u32) -> u32;
+}
+
+world concurrent-probe {
+  import api;
+  export probe: async func() -> list<u32>;
+}
