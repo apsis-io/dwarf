@@ -78,7 +78,8 @@ lto = true
 
 [profile.dev]
 debug = "line-tables-only"
-incremental = false
+incremental = true
+lto = false
 
 [profile.test]
 debug = "line-tables-only"

@@ -1,3 +1,6 @@
+import { Thing, consume } from "test:resarg/api";
+
 export async function probe() {
-    return "noop";
+    const t = new Thing();
+    return await consume(t);
 }
