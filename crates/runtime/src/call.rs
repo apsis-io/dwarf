@@ -602,6 +602,11 @@ impl Call for QjsCallContext {
             } else {
                 let obj = rquickjs::Object::new(ctx.clone()).unwrap();
                 obj.set("__cqjs_handle", handle).unwrap();
+                // Distinguishes this from a `push_borrow`'d instance sharing
+                // the same prototype, so the generated `drop()` (bindings.rs)
+                // knows it's safe to release rather than a double-drop of a
+                // handle `QjsCallContext` will already auto-drop for a borrow.
+                obj.set("__cqjs_owned", true).unwrap();
                 set_imported_prototype(ctx, &obj, ty);
                 obj.into_value()
             };

@@ -33,3 +33,21 @@ world wasi-import-types {
 
     export check-import-types: func() -> bool;
 }
+
+world wasi-stdin-drop {
+    import wasi:cli/stdin@0.2.12;
+
+    export test-drop: func() -> bool;
+}
+
+// `wasi:http/proxy` re-exports wasi:io/streams' input-stream/output-stream,
+// wasi:io/poll's pollable, and wasi:io/error's error (aliased as
+// `io-error`) through wasi:http/types' `use` statements. Regression coverage
+// for the resource-identity bug where componentize's WASI-import stub gave
+// each occurrence of these resources a fresh, unrelated host type instead of
+// reusing whatever `wasmtime_wasi::p2::add_to_linker_async` later registers
+// for the wasi:io/* originals — see `known_wasi_io_resource` in
+// crates/core/src/lib.rs.
+world wasi-http-proxy {
+    include wasi:http/proxy@0.2.12;
+}

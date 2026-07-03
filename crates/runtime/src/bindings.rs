@@ -93,6 +93,40 @@ fn register_resource_classes<'js>(ctx: &Ctx<'js>, wit: Wit) -> rquickjs::Result<
             prototype.set(method.to_lower_camel_case(), js_func)?;
         }
 
+        // `push_own` (call.rs) hands the guest an *owned* handle it must be
+        // able to release early (e.g. a WASI 0.2 `output-stream` returned
+        // from `outgoing-body.write()`) rather than only on GC — dwarf's own
+        // Stream/Future wrapper types already expose `drop`/`[Symbol.dispose]`
+        // (streams.rs) for the same reason; generic imported resources need
+        // the same escape hatch or the host-side resource table entry is
+        // held until the whole store is torn down. `__cqjs_owned` (set only
+        // by `push_own`'s host-resource branch) distinguishes an owned
+        // instance from a `push_borrow`'d one sharing this same prototype —
+        // dropping a borrow here would double-free it once `QjsCallContext`
+        // auto-drops it at the end of the call that lent it out, so borrows
+        // silently no-op instead.
+        let drop_fn = group.resource.drop();
+        let js_drop = Function::new(
+            ctx.clone(),
+            move |this: This<Value<'js>>| -> rquickjs::Result<()> {
+                let Some(obj) = this.0.as_object() else {
+                    return Ok(());
+                };
+                let owned: bool = obj.get("__cqjs_owned").unwrap_or(false);
+                if !owned {
+                    return Ok(());
+                }
+                if let Ok(handle) = obj.get::<_, u32>("__cqjs_handle") {
+                    let _ = obj.remove("__cqjs_handle");
+                    let _ = obj.remove("__cqjs_owned");
+                    unsafe { drop_fn(handle) };
+                }
+                Ok(())
+            },
+        )?;
+        prototype.set("drop", js_drop.clone())?;
+        prototype.set(crate::trivia::symbol_dispose(ctx)?, js_drop)?;
+
         let class: Constructor = match group.ctor {
             Some(func_index) => Constructor::new_prototype(
                 ctx,

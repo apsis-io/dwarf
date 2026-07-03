@@ -3,9 +3,9 @@ mod common;
 
 use std::path::PathBuf;
 
-use wasmtime::component::Val;
+use wasmtime::component::{Component, Val};
 
-use common::{TestCase, wasi_wit_dir};
+use common::{TestCase, engine, wasi_wit_dir};
 
 #[test]
 fn test_wasi_random() {
@@ -187,6 +187,38 @@ fn test_wasi_stdio() {
     assert_eq!(inst.stdout_bytes(), b"hello from stdin");
 }
 
+/// Regression test: an *owned* imported resource (e.g. `wasi:cli/stdin`'s
+/// `get-stdin() -> own<input-stream>`) used to have no callable `drop()` at
+/// all — `push_own` (crates/runtime/src/call.rs) built a plain object with no
+/// drop registered anywhere, so the host-side resource table entry was held
+/// until the whole store was torn down, and calling `.drop()` from JS threw
+/// `TypeError: not a function`. Also checks that dropping twice is a safe
+/// no-op rather than a double-free of the underlying handle.
+#[test]
+fn test_wasi_imported_resource_drop() {
+    let mut inst = TestCase::new()
+        .wit_dir(wasi_wit_dir())
+        .world("wasi-stdin-drop")
+        .stdin("hello")
+        .script(
+            r#"
+            import stdin from "wasi:cli/stdin@0.2.12";
+
+            export function testDrop() {
+                const input = stdin.getStdin();
+                input.drop();
+                input.drop();
+                return true;
+            }
+        "#,
+        )
+        .build()
+        .expect("should build wasi-stdin-drop component");
+
+    let result = inst.call1("test-drop", &[]);
+    assert_eq!(result, Val::Bool(true));
+}
+
 #[tokio::test]
 async fn test_wasi_0_3_stdio_example() {
     let wit_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/wasi-stdio");
@@ -218,4 +250,51 @@ async fn test_wasi_0_3_stdio_example() {
     }
 
     assert_eq!(inst.stdout_bytes(), b"hello from wasi 0.3");
+}
+
+/// Regression test for a resource-identity bug: `wasi:http/types` re-exports
+/// `wasi:io/streams`' `input-stream`/`output-stream`, `wasi:io/poll`'s
+/// `pollable`, and `wasi:io/error`'s `error` (aliased `io-error`) via `use`.
+/// componentize's WASI-import stub used to give each occurrence of these a
+/// fresh, unrelated host resource type, so once `wasmtime_wasi::p2::
+/// add_to_linker_async` registered the *real* type under `wasi:io/streams`
+/// alone, `wasi:http/types`' still-stubbed alias mismatched it and
+/// instantiation failed with "mismatched resource types" during Wizer init
+/// — before any JS ever ran. This world (`include wasi:http/proxy@0.2.12`)
+/// is exactly that shape; not calling into the built component here (dwarf
+/// itself never links real wasi:http), just proving componentize succeeds.
+#[test]
+fn test_wasi_http_proxy_resource_aliasing() {
+    let opts = dwarf_core::ComponentizeOpts {
+        wit_path: &wasi_wit_dir(),
+        js_source: r#"
+            import { Fields, OutgoingResponse, ResponseOutparam, OutgoingBody } from "wasi:http/types@0.2.12";
+
+            export const incomingHandler = {
+                handle(request, responseOut) {
+                    const response = new OutgoingResponse(new Fields());
+                    response.setStatusCode(200);
+                    const body = response.body();
+                    ResponseOutparam.set(responseOut, { tag: "ok", val: response });
+                    OutgoingBody.finish(body, undefined);
+                }
+            };
+        "#,
+        js_path: None,
+        module_root: None,
+        world_name: Some("wasi-http-proxy"),
+        stub_wasi: false,
+        disable_gc: false,
+        runtime: dwarf_core::Runtime::Default,
+    };
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("should build tokio runtime");
+    let wasm = rt
+        .block_on(dwarf_core::componentize(&opts))
+        .expect("should componentize a wasi:http/proxy world without a resource-type mismatch");
+
+    Component::new(engine(), &wasm).expect("should produce a well-formed component");
 }

@@ -288,11 +288,100 @@ fn define_unknown_imports_as_traps_async(
 ) -> Result<()> {
     let ty = comp.component_type();
     let imports: Vec<_> = ty.imports(engine).collect();
+
+    // WASI 0.2 interfaces (http, filesystem, sockets, cli) re-export
+    // `wasi:io/streams`'s `input-stream`/`output-stream`, `wasi:io/poll`'s
+    // `pollable`, and `wasi:io/error`'s `error` via `use` (sometimes under a
+    // renamed local alias, e.g. `wasi:http/types`'s `error as io-error`).
+    // wasmtime's component type system resolves these to the *same*
+    // resource identity as their `wasi:io/*` origin (confirmed empirically:
+    // `ComponentItem::Resource`'s inner `ResourceType` compares equal across
+    // sites), but `wasmtime_wasi::p2::add_to_linker_async` only registers a
+    // real implementation under the literal `wasi:io/streams`/`wasi:io/poll`/
+    // `wasi:io/error` instance paths — any *other* path needing the same
+    // resource (e.g. `wasi:http/types`) is left on our stub's generic
+    // `ResourceType::host::<()>()`, which then mismatches the real type
+    // registered elsewhere for that same resource, and instantiation fails
+    // with "mismatched resource types" (wasmtime's own
+    // `Linker::define_unknown_imports_as_traps` has the identical gap — it
+    // only skips a name already defined at the *same* linker path, not
+    // aliases elsewhere). Fixed by pre-scanning for the canonical
+    // `wasi:io/*` sighting of each such resource and, everywhere else that
+    // resource's identity recurs, stubbing it with wasmtime-wasi-io's own
+    // public resource type (the exact one its bindgen `with:` map uses) so
+    // it's TypeId-identical to whatever `add_to_linker_async` later
+    // registers at the canonical path.
+    let mut known_resources = Vec::new();
+    for (name, ext) in &imports {
+        collect_known_wasi_io_resources(engine, name, &ext.ty, None, &mut known_resources);
+    }
+
     let mut root = linker.root();
     for (name, ext) in imports {
-        stub_item(&mut root, engine, name, &ext.ty, None)?;
+        stub_item(&mut root, engine, name, &ext.ty, None, &known_resources)?;
     }
     Ok(())
+}
+
+fn known_wasi_io_resource(
+    parent_instance: &str,
+    item_name: &str,
+) -> Option<wasmtime::component::ResourceType> {
+    use wasmtime::component::ResourceType;
+
+    if !parent_instance.starts_with("wasi:io/") {
+        return None;
+    }
+    match item_name {
+        "input-stream" if parent_instance.starts_with("wasi:io/streams@") => {
+            Some(ResourceType::host::<wasmtime_wasi_io::streams::DynInputStream>())
+        }
+        "output-stream" if parent_instance.starts_with("wasi:io/streams@") => {
+            Some(ResourceType::host::<wasmtime_wasi_io::streams::DynOutputStream>())
+        }
+        "pollable" if parent_instance.starts_with("wasi:io/poll@") => {
+            Some(ResourceType::host::<wasmtime_wasi_io::poll::DynPollable>())
+        }
+        "error" if parent_instance.starts_with("wasi:io/error@") => {
+            Some(ResourceType::host::<wasmtime_wasi_io::streams::Error>())
+        }
+        _ => None,
+    }
+}
+
+fn collect_known_wasi_io_resources(
+    engine: &Engine,
+    item_name: &str,
+    item_ty: &wasmtime::component::types::ComponentItem,
+    parent_instance: Option<&str>,
+    out: &mut Vec<(
+        wasmtime::component::ResourceType,
+        wasmtime::component::ResourceType,
+    )>,
+) {
+    use wasmtime::component::types::ComponentItem;
+
+    match item_ty {
+        ComponentItem::ComponentInstance(inst) => {
+            for (export_name, export) in inst.exports(engine) {
+                collect_known_wasi_io_resources(
+                    engine,
+                    export_name,
+                    &export.ty,
+                    Some(item_name),
+                    out,
+                );
+            }
+        }
+        ComponentItem::Resource(rt) => {
+            if let Some(parent) = parent_instance
+                && let Some(host_ty) = known_wasi_io_resource(parent, item_name)
+            {
+                out.push((*rt, host_ty));
+            }
+        }
+        _ => {}
+    }
 }
 
 fn stub_item<T: Send + 'static>(
@@ -301,6 +390,10 @@ fn stub_item<T: Send + 'static>(
     item_name: &str,
     item_ty: &wasmtime::component::types::ComponentItem,
     parent_instance: Option<&str>,
+    known_resources: &[(
+        wasmtime::component::ResourceType,
+        wasmtime::component::ResourceType,
+    )],
 ) -> Result<()> {
     use wasmtime::component::types::ComponentItem;
 
@@ -340,15 +433,23 @@ fn stub_item<T: Send + 'static>(
         ComponentItem::ComponentInstance(inst) => {
             let mut sub = linker.instance(item_name)?;
             for (export_name, export) in inst.exports(engine) {
-                stub_item(&mut sub, engine, export_name, &export.ty, Some(item_name))?;
+                stub_item(
+                    &mut sub,
+                    engine,
+                    export_name,
+                    &export.ty,
+                    Some(item_name),
+                    known_resources,
+                )?;
             }
         }
-        ComponentItem::Resource(_) => {
-            linker.resource(
-                item_name,
-                wasmtime::component::ResourceType::host::<()>(),
-                |_, _| Ok(()),
-            )?;
+        ComponentItem::Resource(rt) => {
+            let host_ty = known_resources
+                .iter()
+                .find(|(component_ty, _)| component_ty == rt)
+                .map(|(_, host_ty)| *host_ty)
+                .unwrap_or_else(wasmtime::component::ResourceType::host::<()>);
+            linker.resource(item_name, host_ty, |_, _| Ok(()))?;
         }
         ComponentItem::Component(_) | ComponentItem::Module(_) => {
             anyhow::bail!("unable to define {item_name} imports as traps")

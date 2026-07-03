@@ -791,6 +791,7 @@ dependencies = [
  "wasi-preview1-component-adapter-provider",
  "wasmtime",
  "wasmtime-wasi",
+ "wasmtime-wasi-io",
  "wasmtime-wizer",
  "wit-component 0.252.0",
  "wit-dylib",
