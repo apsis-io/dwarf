@@ -1,0 +1,13 @@
+package test:resarg;
+
+interface api {
+  resource thing {
+    constructor();
+  }
+  consume: async func(t: thing) -> string;
+}
+
+world resarg {
+  import api;
+  export probe: async func() -> string;
+}
