@@ -112,6 +112,14 @@ pub async fn componentize(opts: &ComponentizeOpts<'_>) -> Result<Vec<u8>> {
     let resolver = module_resolution(opts)?;
     let mut wit_dylib = wit_dylib::create(&resolve, world_id, None);
 
+    // wit_dylib is freshly generated per WIT world (unlike the vendored QuickJS
+    // runtime, which is a fixed blob wasm-opt barely touches - see
+    // periapsis's wasm-opt experiment notes), so it's the one piece of a dwarf
+    // component actually worth running through wasm-opt: ~30% smaller in
+    // practice. Must run before embed_component_metadata below, since wasm-opt
+    // doesn't preserve the "component-type" custom section that call adds.
+    wit_dylib = optimize_wasm(&wit_dylib).context("failed to wasm-opt the wit-dylib module")?;
+
     wit_component::embed_component_metadata(
         &mut wit_dylib,
         &resolve,
@@ -157,6 +165,23 @@ pub async fn componentize(opts: &ComponentizeOpts<'_>) -> Result<Vec<u8>> {
         .context("failed to tag component with dwarf producers metadata")?;
 
     Ok(component)
+}
+
+/// Run binaryen's wasm-opt (-O3, all wasm features enabled) over a core wasm
+/// module's bytes. `wasm-opt`'s only public API is file-to-file, so this
+/// round-trips through a temp dir.
+fn optimize_wasm(bytes: &[u8]) -> Result<Vec<u8>> {
+    let dir = tempfile::tempdir()?;
+    let in_path = dir.path().join("in.wasm");
+    let out_path = dir.path().join("out.wasm");
+    std::fs::write(&in_path, bytes)?;
+
+    let mut opts = wasm_opt::OptimizationOptions::new_opt_level_3();
+    opts.features.baseline = wasm_opt::FeatureBaseline::All;
+    opts.run(&in_path, &out_path)
+        .map_err(|e| anyhow!("wasm-opt failed: {e}"))?;
+
+    Ok(std::fs::read(&out_path)?)
 }
 
 fn module_resolution(opts: &ComponentizeOpts<'_>) -> Result<Option<Resolver>> {

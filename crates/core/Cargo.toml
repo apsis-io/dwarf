@@ -38,6 +38,8 @@ wit-parser.workspace = true
 wit-component = { version = "0.252", features = ["dummy-module"] }
 wit-dylib = "0.252"
 wasm-metadata = { version = "0.252", default-features = false }
+wasm-opt = { version = "0.116", default-features = false }
+tempfile = "3.13"
 wasi-preview1-component-adapter-provider = "46"
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true

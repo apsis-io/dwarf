@@ -74,7 +74,7 @@ wasmtime-wasi.workspace = true
 wit-parser.workspace = true
 
 [profile.release]
-lto = true
+lto = "thin"
 
 [profile.dev]
 debug = "line-tables-only"
