@@ -789,6 +789,7 @@ dependencies = [
  "ureq",
  "wac-graph",
  "wasi-preview1-component-adapter-provider",
+ "wasm-metadata 0.252.0",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-io",

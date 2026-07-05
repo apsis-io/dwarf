@@ -150,6 +150,12 @@ pub async fn componentize(opts: &ComponentizeOpts<'_>) -> Result<Vec<u8>> {
         component = stub_wasi_imports(&component).context("failed to stub WASI imports")?;
     }
 
+    let mut producers = wasm_metadata::Producers::empty();
+    producers.add("processed-by", "dwarf", env!("CARGO_PKG_VERSION"));
+    component = producers
+        .add_to_wasm(&component)
+        .context("failed to tag component with dwarf producers metadata")?;
+
     Ok(component)
 }
 
