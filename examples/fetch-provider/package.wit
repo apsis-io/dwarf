@@ -1,0 +1,28 @@
+package dwarf:fetch;
+
+interface client {
+  record http-header {
+    name: string,
+    value: string,
+  }
+
+  record fetch-request {
+    url: string,
+    method: string,
+    headers: list<http-header>,
+    body: option<list<u8>>,
+  }
+
+  record fetch-response {
+    status: u16,
+    headers: list<http-header>,
+    body: list<u8>,
+  }
+
+  fetch: async func(request: fetch-request) -> result<fetch-response, string>;
+}
+
+world fetch-provider {
+  import wasi:http/client@0.3.0;
+  export client;
+}
