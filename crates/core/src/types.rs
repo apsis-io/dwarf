@@ -70,8 +70,8 @@ pub fn emit_ts_types(
 }
 
 /// jco's generated `.d.ts` assumes componentize-js's own JS bindings, which
-/// diverge from dwarf's actual runtime in two ways (confirmed empirically,
-/// not just from reading jco's source):
+/// diverge from dwarf's actual runtime in several ways (confirmed
+/// empirically, not just from reading jco's source):
 ///
 /// - `u64`/`s64` are typed `bigint`, but dwarf's runtime always hands back a
 ///   plain JS `number`.
@@ -79,12 +79,29 @@ pub fn emit_ts_types(
 ///   omittable `field?: T` (record fields), but dwarf's runtime always
 ///   includes the property/value and uses `null` for "none", never
 ///   `undefined` and never omits the property.
+/// - A `stream<T>` value is typed `ReadableStream<T>`, but dwarf's runtime
+///   hands back its own `StreamReadable<T>` wrapper (`read(count?)`,
+///   `cancelRead()`, `drop()`) - not a real `ReadableStream` (no
+///   `.getReader()`).
+/// - A `future<T>` value *in parameter or tuple-return-element position* is
+///   typed as a bare `Promise<T>`, but dwarf's runtime hands back its own
+///   `FutureReadable<T>` wrapper (`read()`, `cancelRead()`, `drop()`) there
+///   too - not a real `Promise` (no direct `.then()`, must call `.read()`
+///   first). This patch deliberately does NOT touch a function's own
+///   top-level return type, since `Promise<T>` there is genuinely ambiguous
+///   between a real Promise (a genuinely `async` WIT function, which dwarf's
+///   runtime represents as an actual native Promise) and a `future<T>` value
+///   returned directly from a *non-async* function - jco's output doesn't
+///   textually distinguish these two cases at that position, so patching it
+///   blindly would risk turning a real Promise into a wrapper type or vice
+///   versa. Hand-verify against the WIT signature for that specific case.
 ///
 /// Patches every `.d.ts` under `dir` in place to match. This is a best-effort
 /// textual fix, not a from-scratch type generator - deeply nested option
 /// shapes (e.g. `option<option<T>>`, which dwarf represents with a tagged
-/// `{ tag, val }` form rather than plain `null`) are not specifically
-/// handled and may still read as jco's own convention.
+/// `{ tag, val }` form rather than plain `null`) and generic types nested
+/// more than two levels deep (e.g. `stream<list<result<T, E>>>`) are not
+/// specifically handled and may still read as jco's own convention.
 fn patch_dwarf_conventions(dir: &Path) -> Result<()> {
     for entry in walk_dts(dir)? {
         let content = std::fs::read_to_string(&entry)
@@ -121,8 +138,60 @@ static BIGINT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bbigint\b").u
 static OPTIONAL_FIELD_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(\w+)\?:\s*([^,;\n]+)").unwrap());
 
+/// Matches a generic type application up to two levels of `<...>` nesting -
+/// covers the common case (e.g. `Result<number, string>`) without needing a
+/// recursive grammar (which the `regex` crate can't express).
+const BALANCED_GENERIC_BODY: &str = r"(?:[^<>]|<[^<>]*>)*";
+
+static READABLE_STREAM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(r"ReadableStream<({BALANCED_GENERIC_BODY})>")).unwrap()
+});
+static PROMISE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"Promise<({BALANCED_GENERIC_BODY})>")).unwrap());
+static TUPLE_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[([^\[\]]*)\]").unwrap());
+static PARAM_LIST_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\(([^()]*)\)").unwrap());
+
+const STREAM_READABLE_IFACE: &str = "interface StreamReadable<T> {\n  read(count?: number): Promise<T extends number ? Uint8Array : T[]>;\n  cancelRead(): void | { progress: number; result: number };\n  drop(): void;\n}\n";
+const FUTURE_READABLE_IFACE: &str = "interface FutureReadable<T> {\n  read(): Promise<T>;\n  cancelRead(): void | number;\n  drop(): void;\n}\n";
+
+fn wrap_futures_in(text: &str) -> String {
+    PROMISE_RE
+        .replace_all(text, "FutureReadable<$1>")
+        .into_owned()
+}
+
+/// Rewrites `future<T>` values in parameter and tuple-return-element
+/// position (both unambiguous - see `patch_dwarf_conventions`'s doc comment)
+/// from jco's bare `Promise<T>` to dwarf's actual `FutureReadable<T>`
+/// wrapper shape.
+fn patch_future_positions(src: &str) -> String {
+    let src = TUPLE_TYPE_RE.replace_all(src, |caps: &regex::Captures| {
+        format!("[{}]", wrap_futures_in(&caps[1]))
+    });
+    PARAM_LIST_RE
+        .replace_all(&src, |caps: &regex::Captures| {
+            format!("({})", wrap_futures_in(&caps[1]))
+        })
+        .into_owned()
+}
+
 fn patch_ts_source(src: &str) -> String {
     let src = BIGINT_RE.replace_all(src, "number");
     let src = src.replace(" | undefined", " | null");
-    OPTIONAL_FIELD_RE.replace_all(&src, "$1: $2 | null").into_owned()
+    let src = OPTIONAL_FIELD_RE
+        .replace_all(&src, "$1: $2 | null")
+        .into_owned();
+    let src = READABLE_STREAM_RE
+        .replace_all(&src, "StreamReadable<$1>")
+        .into_owned();
+    let src = patch_future_positions(&src);
+
+    let mut prelude = String::new();
+    if src.contains("StreamReadable<") {
+        prelude.push_str(STREAM_READABLE_IFACE);
+    }
+    if src.contains("FutureReadable<") {
+        prelude.push_str(FUTURE_READABLE_IFACE);
+    }
+    prelude + &src
 }
