@@ -150,6 +150,8 @@ impl TestCase {
             module_root: None,
             world_name: self.world_name.as_deref(),
             stub_wasi: self.stub_wasi,
+            auto_vendor: false,
+            polyfills: &[],
             disable_gc: false,
             runtime: Runtime::Default,
         };
@@ -181,6 +183,8 @@ impl TestCase {
             module_root: None,
             world_name: self.world_name.as_deref(),
             stub_wasi: self.stub_wasi,
+            auto_vendor: false,
+            polyfills: &[],
             disable_gc: false,
             runtime: Runtime::Default,
         };

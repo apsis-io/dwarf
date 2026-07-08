@@ -34,6 +34,8 @@ async fn test_concurrent_async_import_calls_overlap() {
         module_root: None,
         world_name: Some("concurrent-probe"),
         stub_wasi: false,
+        auto_vendor: false,
+        polyfills: &[],
         disable_gc: false,
         runtime: dwarf_core::Runtime::Default,
     };

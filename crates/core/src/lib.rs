@@ -1,6 +1,9 @@
 pub mod codegen;
+pub mod polyfills;
 mod resolver;
 pub mod stubwasi;
+pub mod types;
+mod wit;
 
 use std::path::Path;
 
@@ -14,7 +17,6 @@ use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
-use wit_parser::Resolve;
 
 include!(concat!(env!("OUT_DIR"), "/output.rs"));
 
@@ -52,6 +54,12 @@ pub struct ComponentizeOpts<'a> {
     pub world_name: Option<&'a str>,
     /// Stub all WASI imports with traps
     pub stub_wasi: bool,
+    /// Automatically fetch missing WIT dependencies with `wkg wit fetch` when
+    /// `wit_path` is a directory and resolution fails on an unresolved package
+    pub auto_vendor: bool,
+    /// Names of static (non-WASI) polyfills to include, e.g. `["buffer"]` -
+    /// see `polyfills::POLYFILLS` for the available set
+    pub polyfills: &'a [&'a str],
     /// Disable automatic garbage collection in the QuickJS runtime
     pub disable_gc: bool,
     /// Runtime to embed before Wizer initialization
@@ -104,11 +112,11 @@ pub fn default_builtin_runtime() -> Runtime<'static> {
 
 /// Convert JavaScript source code into a WebAssembly component.
 pub async fn componentize(opts: &ComponentizeOpts<'_>) -> Result<Vec<u8>> {
-    let mut resolve = Resolve::default();
-    let (pkg_id, _) = resolve.push_path(opts.wit_path)?;
+    let (resolve, pkg_id) = wit::resolve_wit(opts.wit_path, opts.auto_vendor)?;
     let world_id = resolve.select_world(&[pkg_id], opts.world_name)?;
 
-    let shim = codegen::generate_shim(&resolve, world_id);
+    let mut shim = codegen::generate_shim(&resolve, world_id);
+    shim.push_str(&polyfills::resolve_shim_suffix(opts.polyfills)?);
     let resolver = module_resolution(opts)?;
     let mut wit_dylib = wit_dylib::create(&resolve, world_id, None);
 

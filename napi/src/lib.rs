@@ -19,6 +19,10 @@ pub struct ComponentizeOpts {
     pub world: Option<String>,
     /// Stub all WASI imports with traps (default: false)
     pub stub_wasi: Option<bool>,
+    /// Automatically fetch missing WIT dependencies with `wkg wit fetch` (default: true)
+    pub auto_vendor: Option<bool>,
+    /// Names of static polyfills to include, e.g. `["buffer"]`
+    pub polyfills: Option<Vec<String>>,
     /// Disable automatic garbage collection (default: false)
     pub disable_gc: Option<bool>,
     /// Use the built-in runtime optimized for smaller generated components
@@ -117,6 +121,13 @@ pub async fn componentize(opts: ComponentizeOpts) -> Result<ComponentizeResult> 
         },
     };
 
+    let polyfills: Vec<&str> = opts
+        .polyfills
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(String::as_str)
+        .collect();
     let opts = dwarf_core::ComponentizeOpts {
         wit_path: &wit_path,
         js_source: &opts.js_source,
@@ -124,6 +135,8 @@ pub async fn componentize(opts: ComponentizeOpts) -> Result<ComponentizeResult> 
         module_root: module_root.as_deref(),
         world_name: opts.world.as_deref(),
         stub_wasi: opts.stub_wasi.unwrap_or(false),
+        auto_vendor: opts.auto_vendor.unwrap_or(true),
+        polyfills: &polyfills,
         disable_gc: opts.disable_gc.unwrap_or(false),
         runtime,
     };

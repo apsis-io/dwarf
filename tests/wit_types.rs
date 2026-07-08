@@ -1657,6 +1657,8 @@ fn test_exported_resource() {
         module_root: None,
         world_name: None,
         stub_wasi: true,
+        auto_vendor: false,
+        polyfills: &[],
         disable_gc: false,
         runtime: dwarf_core::Runtime::Default,
     };
@@ -1773,6 +1775,8 @@ fn test_static_resource_method_in_interface() {
         module_root: None,
         world_name: None,
         stub_wasi: true,
+        auto_vendor: false,
+        polyfills: &[],
         disable_gc: false,
         runtime: dwarf_core::Runtime::Default,
     };

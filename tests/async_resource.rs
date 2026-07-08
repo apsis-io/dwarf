@@ -99,6 +99,8 @@ async fn test_async_import_taking_owned_resource_param() {
         module_root: None,
         world_name: Some("resarg"),
         stub_wasi: false,
+        auto_vendor: false,
+        polyfills: &[],
         disable_gc: false,
         runtime: dwarf_core::Runtime::Default,
     };

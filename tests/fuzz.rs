@@ -258,6 +258,8 @@ mod fuzz {
                 module_root: None,
                 world_name: None,
                 stub_wasi: true,
+                auto_vendor: false,
+                polyfills: &[],
                 disable_gc: false,
                 runtime: Runtime::Default,
             };
@@ -463,6 +465,8 @@ mod fuzz_async {
                 module_root: None,
                 world_name: None,
                 stub_wasi: false,
+                auto_vendor: false,
+                polyfills: &[],
                 disable_gc: false,
                 runtime: Runtime::Default,
             };

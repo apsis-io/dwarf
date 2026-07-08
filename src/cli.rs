@@ -12,6 +12,18 @@ use oxc_parser::Parser as OxcParser;
 use oxc_span::SourceType;
 
 use std::fs;
+use std::path::Path;
+
+/// Renders `path`'s display form with a trailing separator when it's a directory,
+/// so e.g. `--wit wit` is echoed back as `wit/` rather than looking like a file.
+fn display_path(path: &Path) -> String {
+    let rendered = path.display().to_string();
+    if path.is_dir() && !rendered.ends_with(std::path::MAIN_SEPARATOR) {
+        format!("{rendered}{}", std::path::MAIN_SEPARATOR)
+    } else {
+        rendered
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "dwarf")]
@@ -40,6 +52,18 @@ pub struct CliArgs {
     /// Stub all WASI imports with traps
     #[arg(long)]
     pub stub_wasi: bool,
+
+    /// Disable automatically fetching missing WIT dependencies via `wkg wit fetch`
+    #[arg(long)]
+    pub no_vendor: bool,
+
+    /// Also generate TypeScript type declarations for the WIT world via `jco types`
+    #[arg(long, value_name = "DIR")]
+    pub emit_types: Option<std::path::PathBuf>,
+
+    /// Include a static polyfill (repeatable), e.g. `--polyfill buffer`
+    #[arg(long = "polyfill", value_name = "NAME")]
+    pub polyfills: Vec<String>,
 
     /// Minify the JS source via oxc before componentizing
     #[arg(short = 'm', long)]
@@ -115,7 +139,7 @@ pub async fn run(args: Vec<String>) -> Result<()> {
     };
 
     println!("dwarf");
-    println!("  WIT:    {}", args.wit.display());
+    println!("  WIT:    {}", display_path(&args.wit));
     println!("  JS:     {}", args.js.display());
     println!("  Output: {}", args.output.display());
 
@@ -133,6 +157,7 @@ pub async fn run(args: Vec<String>) -> Result<()> {
         println!("Stubbing WASI imports...");
     }
 
+    let polyfills: Vec<&str> = args.polyfills.iter().map(String::as_str).collect();
     let component = componentize(&ComponentizeOpts {
         wit_path: &args.wit,
         js_source: &js_source,
@@ -140,6 +165,8 @@ pub async fn run(args: Vec<String>) -> Result<()> {
         module_root: args.module_root.as_deref(),
         world_name: args.world.as_deref(),
         stub_wasi: args.stub_wasi,
+        auto_vendor: !args.no_vendor,
+        polyfills: &polyfills,
         disable_gc: args.disable_gc,
         runtime,
     })
@@ -150,6 +177,13 @@ pub async fn run(args: Vec<String>) -> Result<()> {
 
     println!("Component written to {}", args.output.display());
     println!("  Size: {} bytes", component.len());
+
+    if let Some(types_dir) = &args.emit_types {
+        println!("Generating TypeScript types via `jco types`...");
+        dwarf_core::types::emit_ts_types(&args.wit, args.world.as_deref(), types_dir, &polyfills)
+            .context("failed to generate TypeScript types")?;
+        println!("Types written to {}", display_path(types_dir));
+    }
 
     Ok(())
 }

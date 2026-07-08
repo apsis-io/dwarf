@@ -284,6 +284,8 @@ fn test_wasi_http_proxy_resource_aliasing() {
         module_root: None,
         world_name: Some("wasi-http-proxy"),
         stub_wasi: false,
+        auto_vendor: false,
+        polyfills: &[],
         disable_gc: false,
         runtime: dwarf_core::Runtime::Default,
     };
