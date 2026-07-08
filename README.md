@@ -40,6 +40,20 @@ Under the hood it:
 Rust **1.94** or later is required (the `wasm32-wasip2` target needs a recent
 toolchain for PIC support in wasi-libc).
 
+Two optional external tools enable extra features, checked for on `PATH` at
+runtime — neither is required to build or run `dwarf` itself:
+
+```bash
+# wkg - enables automatic fetching of missing WIT dependencies (e.g. wasi:*
+# imports) into deps/ instead of vendoring them by hand
+cargo install wkg
+
+# jco - enables `dwarf --emit-types <dir>`, generating TypeScript declarations
+# for a WIT world. Note: the unscoped `jco` package on npm is an unrelated
+# placeholder - the real package is scoped.
+npm install -g @bytecodealliance/jco
+```
+
 ## Installation
 
 Not published to crates.io or npm — this is a local-only fork. Build from
@@ -114,6 +128,8 @@ dwarf [OPTIONS] --wit <WIT> --js <JS>
 | `--module-root <PATH>` | | Root directory exposed read-only during Wizer for resolving JavaScript imports |
 | `--world <NAME>` | `-n` | World name when the WIT defines multiple worlds |
 | `--stub-wasi` | | Replace all WASI imports with trap stubs |
+| `--no-vendor` | | Disable automatically fetching missing WIT dependencies via `wkg wit fetch` |
+| `--emit-types <DIR>` | | Also generate TypeScript type declarations for the WIT world via `jco types` |
 | `--minify` | `-m` | Minify JS source before embedding |
 | `--opt-size` | | Use the built-in QuickJS runtime optimized for size |
 | `--sync` | | Use the built-in non-async runtime (combine with `--opt-size` for the non-async opt-size runtime) |
@@ -131,6 +147,23 @@ Build with features:
 ```bash
 cargo build --release --features opt-size
 ```
+
+### TypeScript Types
+
+`--emit-types <DIR>` generates `.d.ts` declarations for the WIT world via
+[`jco types`](https://github.com/bytecodealliance/jco) (must be on `PATH`,
+see [Prerequisites](#prerequisites)). jco's output assumes its own
+(componentize-js-oriented) JS binding conventions, which diverge from dwarf's
+actual runtime in two confirmed ways — `u64`/`s64` typed `bigint` instead of
+`number`, and `option<T>` typed `T | undefined`/an omittable `field?: T`
+instead of dwarf's actual `T | null` (dwarf always includes the
+property/value, using `null` for "none," never `undefined` and never omitting
+it). dwarf patches jco's generated files to match its own conventions before
+writing them out. This is a best-effort textual patch, not a from-scratch
+type generator — deeply nested option shapes (e.g. `option<option<T>>`,
+which dwarf represents with a tagged `{ tag, val }` form rather than plain
+`null`) aren't specifically handled and may still read as jco's own
+convention.
 
 ## Using Imports
 
@@ -168,6 +201,192 @@ initialization. Relative imports are resolved from the entry file path passed to
 default the CLI uses the current directory when the entry file is under it, or
 the entry file's parent directory otherwise. Use `--module-root <PATH>` to expose
 a project root that contains shared files or `node_modules`.
+
+### Composable Capability Components
+
+Some WASI capabilities (`wasi:http/client` in particular) need constructing
+resources — headers, request bodies as `stream<u8>`, trailers as `future<T>`
+— whose `wit.Stream`/`wit.Future` type indices are auto-assigned per
+component based on everything else in that component's own WIT world. That
+makes them a poor fit for glue code meant to drop into an arbitrary caller's
+world. The better pattern: build the capability as its own small, focused
+component (a fixed world, so its indices are fixed and known) that exports a
+plain-types-only interface — strings, lists, records, no resources/streams/
+futures crossing the boundary — and compose it into your own component with
+[`wac plug`](https://github.com/bytecodealliance/wac). See
+[`examples/fetch-provider`](examples/fetch-provider) for a complete,
+verified-against-real-HTTP-servers example of this pattern.
+
+### Vendoring WIT Dependencies
+
+When `--wit` points at a directory, referenced packages (e.g. `wasi:cli`)
+are normally vendored under a `deps/` subdirectory next to your WIT files. If
+a package is missing, dwarf automatically runs `wkg wit fetch` to fetch it
+(requires [`wkg`](#prerequisites) on `PATH`) and retries — no manual `deps/`
+setup needed for a quick start. Disable this with `--no-vendor`; auto-vendoring
+only applies to directory `--wit` paths, since a single standalone WIT file has
+no `deps/` directory to populate.
+
+## Console
+
+`console.log`/`info`/`debug` and `console.warn`/`error` are available when the
+world imports either version of `wasi:cli/stdout`/`stderr`, in priority order:
+
+1. **WASI 0.2** (matched by `get-stdout`/`get-stderr`) — genuinely synchronous,
+   guaranteed complete by the time the call returns, exactly like real
+   `console.log`. Prefer this when your world can have it.
+2. **WASI 0.3** (matched by `write-via-stream`) otherwise — WASI 0.3 has no
+   synchronous write primitive, so this path makes `log`/`info`/`debug`/
+   `warn`/`error` return a `Promise<void>` instead of `undefined`. This
+   matters: a p3 world that `include`s `wasi:cli/command@0.3.0` **cannot**
+   also import `wasi:cli/stdout@0.2.x`/`stderr@0.2.x` (see the note below),
+   so any p3-only world lands on this path.
+
+```wit
+world hello {
+    import wasi:cli/stdout@0.2.12;
+    import wasi:cli/stderr@0.2.12;
+    export greet: func(name: string) -> string;
+}
+```
+
+```js
+export function greet(name) {
+    console.log("greeting", name);
+    return `Hello, ${name}!`;
+}
+```
+
+`console` always exists — if neither import is declared, calling the
+relevant method throws a clear error naming both options, rather than
+leaving `console` undefined or silently doing nothing.
+
+**In a 0.3-only world, unawaited calls can silently lose output** if nothing
+else in the same async export subsequently awaits or yields — confirmed
+empirically: two unawaited `console.log` calls followed by an `await` on a
+third all flushed correctly, but an unawaited `console.error` as the last
+statement before an export returns produced no output at all. Await
+`console.log`/`error`/etc. (they always return a promise-or-undefined; awaiting
+`undefined` is a no-op) whenever you can't otherwise guarantee the surrounding
+async export keeps running long enough to flush the write. This is *not* a
+concern in a WASI-0.2-backed world, where these calls are always synchronous
+and complete before returning.
+
+> **WIT-level constraint:** `wasi:cli/command@0.3.0` and `wasi:cli/stdout@0.2.x`/
+> `stderr@0.2.x` cannot be vendored together in the same world — `wkg wit fetch`
+> fails to resolve `wasi:cli@0.3.0`'s own transitive deps once a 0.2.x import of
+> the same package is also present. This isn't a dwarf limitation to work
+> around; it's why the 0.3 fallback above exists at all.
+
+Non-string arguments are formatted with `JSON.stringify` — a compact
+single-line dump (`{"foo":"bar"}`, `[1,2,3]`), not Node's multi-line
+`util.inspect`-style output. Two quirks worth knowing: `console.log(undefined)`
+prints a blank line (`JSON.stringify(undefined)` is the JS value `undefined`,
+not a string, and `Array.join` coerces it to `''`), and a circular-reference
+object throws synchronously at the call site rather than being silently
+swallowed.
+
+### Async logging: `print`/`println`/`eprint`/`eprintln`
+
+`console.print`/`println` (stdout) and `console.eprint`/`eprintln` (stderr)
+always exist and always return a `Promise<void>` that rejects rather than
+throwing synchronously — `print`/`eprint` write with no trailing newline,
+`println`/`eprintln` append one. They use, in priority order:
+
+1. **WASI 0.3** `wasi:cli/stdout`/`stderr` (matched by `write-via-stream`) if
+   imported — genuinely async, via a real `stream<u8>` handoff.
+2. **WASI 0.2** `wasi:cli/stdout`/`stderr` (matched by `get-stdout`/`get-stderr`)
+   otherwise — the sync write wrapped in an `async` function, for a uniform
+   Promise-returning API regardless of which WASI version is available.
+3. Neither imported — the returned promise rejects, naming both import options.
+
+```js
+export async function greet(name) {
+    await console.print("no newline, ");
+    await console.println("then a line.");
+    return `Hello, ${name}!`;
+}
+```
+
+**Only safe to call from an async export.** The WASI 0.3 path uses
+component-model stream/future machinery that has no task state outside an
+active async export call — calling it (even indirectly via `console.print`,
+or `console.log`/`error` in a 0.3-only world) from a plain sync export
+crashes outright ("no active task state"), not a graceful error.
+`log`/`info`/`debug`/`warn`/`error` have no such restriction *when backed by
+WASI 0.2* — always safe to call fire-and-forget from anywhere in that case —
+but inherit the same async-export-only restriction as `print`/`println` when
+falling back to WASI 0.3 (see the Console section above).
+
+## Process
+
+`process.env`/`process.argv`/`process.cwd()` are wired to
+`wasi:cli/environment`, and `process.exit(code)` to `wasi:cli/exit`'s
+`exit-with-code`, when the world imports them (this interface's shape is
+unchanged between WASI 0.2 and 0.3, so unlike `console` there's no version
+branching). Like `console`, `process` always exists — accessing an
+unbacked property throws a clear error naming what to add.
+
+```wit
+world hello {
+    import wasi:cli/environment@0.2.12;
+    import wasi:cli/exit@0.2.12;
+    export greet: func(name: string) -> string;
+}
+```
+
+```js
+export function greet(name) {
+    const key = process.env.API_KEY;
+    if (!key) process.exit(1);
+    return `Hello, ${name}!`;
+}
+```
+
+Divergences from Node worth knowing: `argv` is exactly `get-arguments()`
+with no synthetic `node`/script-path entries prepended (WASI has no such
+convention); `cwd()` returns `null` (not a fabricated path) when
+`initial-cwd()` is `option::none`; `exit(code)` maps onto
+`exit-with-code(status-code: u8)`, so `code` is coerced into a single byte
+the same way Node itself truncates exit codes outside 0-255. `env`/`argv`
+are always re-fetched on access rather than cached, matching the same
+Wizer-snapshot-timing concern as `console`'s stdout handle.
+
+## Polyfills
+
+`TextEncoder`/`TextDecoder` (UTF-8 only) are always available — dwarf's
+QuickJS runtime doesn't provide them natively, but they're foundational
+enough (no WIT/host dependency, needed internally by other polyfills like
+`url`) to include unconditionally rather than gate behind a flag.
+
+Beyond that, `--polyfill <name>` (repeatable) includes vendored third-party
+libraries with no WIT/host dependency at all — opt-in, since (unlike
+`console`/`process`) there's nothing in a WIT world to auto-detect "this is
+wanted" from:
+
+| Name | Provides | Notes |
+|---|---|---|
+| `buffer` | `Buffer` | [feross/buffer](https://github.com/feross/buffer), Node's `Buffer` reimplemented on `Uint8Array` |
+| `url` | `URL`, `URLSearchParams` | [whatwg-url](https://github.com/jsdom/whatwg-url), spec-compliant including internationalized domain names — ~750KB before Wizer snapshotting (mostly Unicode/IDNA tables), only paid by components that request it |
+| `fetch-classes` | `Headers`, `Request`, `Response`, `DOMException` | [whatwg-fetch](https://github.com/JakeChampion/fetch), trimmed to just the classes (its `fetch()` itself, which uses `XMLHttpRequest`, is excluded — pair with your own `fetch()` wired to a real WASI HTTP import) |
+| `path` | `path` (`.join`, `.dirname`, `.basename`, etc. — matches Node's `path` module shape) | [unjs/pathe](https://github.com/unjs/pathe), fast and dependency-free |
+| `readable-stream` | `ReadableStream`, `wit.readableStreamFromStream(readable)` | Hand-written (not vendored), verified against real `ReadableStream` — minimal pull-based-controller subset (no BYOB readers, `tee()`, or `pipeTo`/`pipeThrough`), matching what libraries like h3 actually use for streaming response bodies. The bridge helper wraps a `wit.Stream()` readable end for handing a WASI-backed body to code expecting the standard interface — single-read only, same reason as `fetch-provider`'s documented limitation (see below) |
+
+An unknown `--polyfill` name is a build error listing the available names.
+See [NOTICES](NOTICES) for full attribution of vendored polyfill code.
+
+Every polyfill also has a `.d.ts` (in `crates/core/polyfills/`), automatically
+included in `--emit-types`' output as `globals.d.ts` alongside the WIT-derived
+types — covering the always-on globals (`console`, `process`,
+`TextEncoder`/`TextDecoder`) plus whichever `--polyfill` names were requested,
+so `--polyfill` and `--emit-types` give full type coverage together.
+
+**Development note:** setting `DWARF_POLYFILLS_DIR=/path/to/crates/core/polyfills`
+(pointed at a local dwarf checkout) makes dwarf read polyfill `.js`/`.d.ts`
+content fresh from disk instead of what's compiled into the binary — editing
+a polyfill's source takes effect immediately, no `cargo build` needed. Unset
+(the default), dwarf stays a single self-contained binary with no runtime
+directory dependency.
 
 ## WIT Type Mappings
 
@@ -313,6 +532,15 @@ constants at runtime.
 | `read(count?)` | `Promise<T[]>` (or `Uint8Array` for `u8`) | Read up to `count` values |
 | `cancelRead()` | result or `undefined` | Cancel an in-progress read |
 | `drop()` | `void` | Release the stream handle |
+
+**Calling `read()` again after the writable end has dropped and all data is
+already consumed is not a catchable JS error** — confirmed empirically, it's
+a hard host-level trap ("cannot read after being notified that the writable
+end dropped"). A drain-until-empty loop is only safe if you have some other
+way to know more data is coming before calling `read()` again; otherwise,
+read once with a generously-sized `count` and treat that as the whole
+payload (the pattern `examples/fetch-provider` and the `readable-stream`
+polyfill's WASI bridge both use).
 
 **StreamWritable methods:**
 
