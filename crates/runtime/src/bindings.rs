@@ -274,6 +274,55 @@ fn call_import<'js>(
     }
 }
 
+/// EXPERIMENTAL: before signaling `task_return`, drains any outstanding
+/// fire-and-forget writes registered via the console polyfill's
+/// `__dwarfTrackWrite` (see `crates/core/src/polyfills.rs`) - so a library
+/// that calls `console.log(...)` without awaiting it (as virtually all
+/// real-world JS libraries do, since real `console.log` is synchronous)
+/// still gets a flushed write by the time the whole export call completes,
+/// rather than having it silently cancelled along with the task the moment
+/// the export's own result is ready. Falls back to calling `task_return`
+/// immediately if `__dwarfDrainPendingWrites` isn't defined (no console
+/// polyfill emitted for this world at all).
+fn finish_export_after_drain<'js>(
+    ctx: &Ctx<'js>,
+    func_index: usize,
+    call: QjsCallContext,
+) -> rquickjs::Result<()> {
+    let globals = ctx.globals();
+    let Ok(drain_fn) = globals.get::<_, Function>("__dwarfDrainPendingWrites") else {
+        let func = ctx.wit().export_func(func_index);
+        let mut call = call;
+        func.call_task_return(&mut call);
+        return Ok(());
+    };
+
+    let drain_promise: Value = drain_fn.call(())?;
+    let promise_obj = drain_promise
+        .as_object()
+        .ok_or_else(|| rquickjs::Error::new_from_js("value", "promise"))?;
+    let then_fn: Function = promise_obj.get("then")?;
+
+    let call_cell = std::cell::Cell::new(Some(call));
+    let finish_cb = Function::new(
+        ctx.clone(),
+        coerce_fn(move |ctx: Ctx<'_>, _args: Rest<Value<'_>>| {
+            let mut call = call_cell
+                .take()
+                .expect("drain completion callback invoked more than once");
+            let func = ctx.wit().export_func(func_index);
+            func.call_task_return(&mut call);
+            Ok(Value::new_undefined(ctx))
+        }),
+    )?;
+
+    let mut call_args = function::Args::new(ctx.clone(), 1);
+    call_args.this(drain_promise.clone())?;
+    call_args.push_arg(finish_cb)?;
+    then_fn.call_arg::<Value>(call_args)?;
+    Ok(())
+}
+
 /// Build the `asyncExports` object for the `__cqjs` namespace.
 ///
 /// Each wrapper calls the user's export function, then chains `.then()` to
@@ -340,7 +389,7 @@ fn build_async_exports<'js>(
                         if let Some(value) = value {
                             call.push_value(&ctx, value);
                         }
-                        func.call_task_return(&mut call);
+                        finish_export_after_drain(&ctx, func_index, call)?;
                         Ok(Value::new_undefined(ctx))
                     }),
                 )?;
@@ -364,7 +413,7 @@ fn build_async_exports<'js>(
                             call.push_value(&ctx, value);
                         }
 
-                        func.call_task_return(&mut call);
+                        finish_export_after_drain(&ctx, func_index, call)?;
                         Ok(Value::new_undefined(ctx))
                     }),
                 )?;
