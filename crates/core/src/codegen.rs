@@ -4,6 +4,8 @@ use indexmap::IndexSet;
 use std::collections::{HashMap, HashSet};
 use wit_parser::{Resolve, Type, TypeDefKind, TypeId, TypeOwner, WorldId, WorldItem};
 
+use crate::polyfills;
+
 /// Generate a JS shim from WIT metadata that sets up stream/future factories.
 pub fn generate_shim(resolve: &Resolve, world_id: WorldId) -> String {
     let mut ctx = EmitContext::new(resolve, world_id);
@@ -72,6 +74,8 @@ impl<'a> EmitContext<'a> {
         if !futures.is_empty() {
             self.emit_constructor("Future", "__cqjs.makeFuture", &futures);
         }
+
+        self.line(&polyfills::generate_wasi_polyfills(self.resolve, self.world_id));
     }
 
     fn emit_constructor(&mut self, name: &str, native_fn: &str, types: &[Option<Type>]) {

@@ -47,6 +47,7 @@ wasmtime-wasi-io = "46"
 wasmtime-wizer = { version = "46", features = ["component-model", "wasmtime"] }
 wac-graph = "0.10"
 indexmap = "2"
+regex = "1"
 
 [build-dependencies]
 anyhow.workspace = true

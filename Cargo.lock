@@ -857,6 +857,7 @@ dependencies = [
  "glob",
  "indexmap",
  "oxc_resolver",
+ "regex",
  "tar",
  "tempfile",
  "tokio",
