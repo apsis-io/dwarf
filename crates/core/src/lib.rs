@@ -271,15 +271,25 @@ async fn wizer_init(
 
     let instance = linker.instantiate_async(&mut store, &comp).await?;
     let init = Init::new(&mut store, &instance)?;
-    init.call_init(
-        &mut store,
-        shim,
-        js,
-        resolver.as_ref().map(Resolver::entry_path),
-        disable_gc,
-    )
-    .await?
-    .map_err(|e| anyhow!("{e}"))
+    // Wraps both failure paths - a trap during the call itself (e.g. a panic
+    // in the guest, which surfaces as a raw wasmtime error from `.await?`)
+    // and a graceful `result<_, string>` error from the WIT function - in
+    // the same `.with_context`, so a crash during the guest's own top-level
+    // module evaluation still shows whatever it printed to stdout/stderr
+    // first (a Rust panic message, a console.log, etc.) instead of only a
+    // bare wasm backtrace.
+    async {
+        init.call_init(
+            &mut store,
+            shim,
+            js,
+            resolver.as_ref().map(Resolver::entry_path),
+            disable_gc,
+        )
+        .await?
+        .map_err(|e| anyhow!("{e}"))
+    }
+    .await
     .with_context(move || {
         format!(
             "{}{}",

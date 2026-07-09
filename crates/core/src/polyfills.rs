@@ -460,6 +460,20 @@ fn emit_async_writer(
     let var = format!("write{var_suffix}Async");
     if has_async {
         lines.push(format!("  const {var} = async (bytes) => {{"));
+        // Component-model stream/future operations require an active async
+        // task (a genuine `async func` export call in progress) - without
+        // one, `wit.Stream()`/its writeViaStream/read chain aborts the whole
+        // guest outright (a raw wasm trap, not a catchable JS exception).
+        // This matters beyond the already-documented "called from a plain
+        // sync export" case: dwarf's own Wizer build-time module-init call
+        // is ALSO a plain (non-async) export, so any top-level module code
+        // (a library's own import-time side effect, not just user code)
+        // that logs something in a WASI-0.3-only world would hit this too -
+        // confirmed empirically. Check first and throw a normal, catchable
+        // Error instead.
+        lines.push(format!(
+            "    if (!__cqjs.hasActiveTask()) {{ throw new Error(\"console.{methods} (via {interface}@0.3.x) requires an active async task - it can't be called from a plain sync export, or from top-level module code running during dwarf's build-time init (e.g. a library's own import-time side effect). Import {interface}@0.2.x for a version that works everywhere, or only call this from within an `async func` export.\"); }}"
+        ));
         lines.push("    const { readable, writable } = wit.Stream(wit.Stream.U8);".into());
         lines.push("    const writeDone = writable.writeAll(bytes);".into());
         lines.push(format!(

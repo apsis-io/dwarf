@@ -106,6 +106,22 @@ impl TaskState {
         *self.0.borrow_mut() = Some(TaskInner::default());
     }
 
+    /// Whether there's an active task (i.e. code is running inside a
+    /// genuine `async func` export call). Component-model stream/future
+    /// operations (`wit.Stream()`/`wit.Future()`, and anything built on
+    /// them like console's WASI-0.3 write fallback) require one - calling
+    /// them without it panics `TaskInner`'s `.expect("no active task
+    /// state")`, which aborts the whole guest (a raw wasm `unreachable`
+    /// trap, not a catchable JS exception) rather than failing gracefully.
+    /// Exposed to JS so callers can check first and throw a normal Error
+    /// instead of hitting that abort - notably relevant during Wizer's
+    /// build-time module-init call, which is a plain (non-async) export and
+    /// so never has task state, even though `wasi:cli/command@0.3.0`-only
+    /// worlds make WASI-0.3 the only console-writing path available.
+    pub(crate) fn is_active(&self) -> bool {
+        self.0.borrow().is_some()
+    }
+
     /// Restore a previously saved task state from host context pointer.
     pub(crate) fn restore(&self, ptr: usize) {
         let inner = unsafe { *Box::from_raw(ptr as *mut TaskInner) };
