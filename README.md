@@ -116,6 +116,10 @@ custom runtime can also be supplied with `--runtime`.
 
 ## CLI Reference
 
+See also: [docs/cli-cheatsheet.md](docs/cli-cheatsheet.md) for a dense,
+single-page quick reference (flags, recipes, polyfills, type mappings) without
+the surrounding prose.
+
 ```
 dwarf [OPTIONS] --wit <WIT> --js <JS>
 ```
@@ -130,7 +134,9 @@ dwarf [OPTIONS] --wit <WIT> --js <JS>
 | `--stub-wasi` | | Replace all WASI imports with trap stubs |
 | `--no-vendor` | | Disable automatically fetching missing WIT dependencies via `wkg wit fetch` |
 | `--emit-types <DIR>` | | Also generate TypeScript type declarations for the WIT world via `jco types` |
+| `--polyfill <NAME>` | | Include a static polyfill (repeatable), e.g. `--polyfill buffer` — see [Polyfills](#polyfills) |
 | `--minify` | `-m` | Minify JS source before embedding |
+| `--disable-gc` | | Disable automatic garbage collection in the QuickJS runtime |
 | `--opt-size` | | Use the built-in QuickJS runtime optimized for size |
 | `--sync` | | Use the built-in non-async runtime (combine with `--opt-size` for the non-async opt-size runtime) |
 | `--runtime <PATH>` | | Custom QuickJS runtime Wasm module to embed |
