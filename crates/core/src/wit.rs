@@ -9,8 +9,7 @@ use std::process::Command;
 use anyhow::{Context, Result, anyhow};
 use wit_parser::{PackageId, PackageName, Resolve, ResolveError, ResolveErrorKind};
 
-const INSTALL_HINT: &str =
-    "install it with `cargo install wkg` (see https://github.com/bytecodealliance/wasm-pkg-tools), \
+const INSTALL_HINT: &str = "install it with `cargo install wkg` (see https://github.com/bytecodealliance/wasm-pkg-tools), \
      or vendor the missing package(s) manually under a `deps/` directory next to your WIT";
 
 /// Parses the WIT package at `path`, retrying once via `wkg wit fetch` if the
@@ -40,12 +39,20 @@ pub(crate) fn resolve_wit(path: &Path, auto_vendor: bool) -> Result<(Resolve, Pa
         )));
     }
 
-    eprintln!("WIT package `{missing}` not found under {}/deps - fetching it with `wkg wit fetch`...", path.display());
+    eprintln!(
+        "WIT package `{missing}` not found under {}/deps - fetching it with `wkg wit fetch`...",
+        path.display()
+    );
     match fetch_deps(path) {
         Ok(()) => parse_wit(path).with_context(|| {
-            format!("still failed to resolve WIT after running `wkg wit fetch` under {}", path.display())
+            format!(
+                "still failed to resolve WIT after running `wkg wit fetch` under {}",
+                path.display()
+            )
         }),
-        Err(fetch_err) => Err(err.context(format!("auto-vendoring failed: {fetch_err}; {INSTALL_HINT}"))),
+        Err(fetch_err) => Err(err.context(format!(
+            "auto-vendoring failed: {fetch_err}; {INSTALL_HINT}"
+        ))),
     }
 }
 

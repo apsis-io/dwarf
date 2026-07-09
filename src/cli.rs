@@ -89,8 +89,7 @@ pub struct CliArgs {
 
 /// Run the dwarf CLI with the given arguments.
 pub async fn run(args: Vec<String>) -> Result<()> {
-    let args =
-        CliArgs::try_parse_from(std::iter::once("dwarf".to_string()).chain(args))?;
+    let args = CliArgs::try_parse_from(std::iter::once("dwarf".to_string()).chain(args))?;
 
     if !args.wit.exists() {
         anyhow::bail!("WIT file/directory not found: {}", args.wit.display());

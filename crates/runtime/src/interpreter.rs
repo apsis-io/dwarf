@@ -148,9 +148,9 @@ impl Interpreter for QjsInterpreter {
                         .unwrap_or_else(|e| panic!("class '{}' not found: {}", class_name, e))
                 };
 
-                let js_func: rquickjs::Function = class_obj.get(method_name).unwrap_or_else(|e| {
-                    panic!("static method '{}' not found: {}", method_name, e)
-                });
+                let js_func: rquickjs::Function = class_obj
+                    .get(method_name)
+                    .unwrap_or_else(|e| panic!("static method '{}' not found: {}", method_name, e));
 
                 let args = cx.stack_into_args(ctx);
                 let boundary = ResultBoundary::new(func.result());
@@ -179,9 +179,9 @@ impl Interpreter for QjsInterpreter {
                         .get(func_name)
                         .unwrap_or_else(|e| panic!("function '{}' not found: {}", func_name, e))
                 } else {
-                    exports.get(func_name).unwrap_or_else(|e| {
-                        panic!("Failed to get function '{}': {}", func_name, e)
-                    })
+                    exports
+                        .get(func_name)
+                        .unwrap_or_else(|e| panic!("Failed to get function '{}': {}", func_name, e))
                 };
 
                 let args = cx.stack_into_args(ctx);

@@ -66,12 +66,8 @@ pub(crate) fn evaluate_user(
     js_source: &str,
     entry_path: Option<&str>,
 ) -> Result<(), String> {
-    let namespace = evaluate(
-        ctx,
-        entry_path.unwrap_or("dwarf:user.js"),
-        js_source,
-    )
-    .map_err(|e| format!("Failed to evaluate user JavaScript module: {e}"))?;
+    let namespace = evaluate(ctx, entry_path.unwrap_or("dwarf:user.js"), js_source)
+        .map_err(|e| format!("Failed to evaluate user JavaScript module: {e}"))?;
 
     ctx.user_module().store(ctx, namespace);
 

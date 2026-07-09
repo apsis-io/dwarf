@@ -32,8 +32,12 @@ pub fn emit_ts_types(
     out_dir: &Path,
     polyfills: &[impl AsRef<str>],
 ) -> Result<()> {
-    std::fs::create_dir_all(out_dir)
-        .with_context(|| format!("failed to create types output directory {}", out_dir.display()))?;
+    std::fs::create_dir_all(out_dir).with_context(|| {
+        format!(
+            "failed to create types output directory {}",
+            out_dir.display()
+        )
+    })?;
 
     let mut cmd = Command::new("jco");
     cmd.arg("types").arg(wit_path).arg("-o").arg(out_dir);
@@ -143,9 +147,8 @@ static OPTIONAL_FIELD_RE: LazyLock<Regex> =
 /// recursive grammar (which the `regex` crate can't express).
 const BALANCED_GENERIC_BODY: &str = r"(?:[^<>]|<[^<>]*>)*";
 
-static READABLE_STREAM_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(&format!(r"ReadableStream<({BALANCED_GENERIC_BODY})>")).unwrap()
-});
+static READABLE_STREAM_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"ReadableStream<({BALANCED_GENERIC_BODY})>")).unwrap());
 static PROMISE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"Promise<({BALANCED_GENERIC_BODY})>")).unwrap());
 static TUPLE_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[([^\[\]]*)\]").unwrap());

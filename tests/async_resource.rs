@@ -16,8 +16,8 @@ mod common;
 
 use std::path::PathBuf;
 
-use wasmtime::component::Val;
 use wasmtime::AsContextMut;
+use wasmtime::component::Val;
 
 use common::TestCase;
 
@@ -127,8 +127,12 @@ async fn test_async_import_taking_owned_resource_param() {
     // argument encoding, wrong resource handle lowering) would surface as a
     // wrong string, a trap, or a hang here — not just a build failure.
     let mut api = linker.instance("test:resarg/api").unwrap();
-    api.resource("thing", wasmtime::component::ResourceType::host::<u32>(), |_, _| Ok(()))
-        .unwrap();
+    api.resource(
+        "thing",
+        wasmtime::component::ResourceType::host::<u32>(),
+        |_, _| Ok(()),
+    )
+    .unwrap();
     api.func_wrap(
         "[constructor]thing",
         |mut store: wasmtime::StoreContextMut<'_, common::WasiCtxState>, (): ()| {

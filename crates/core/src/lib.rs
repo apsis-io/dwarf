@@ -137,11 +137,7 @@ pub async fn componentize(opts: &ComponentizeOpts<'_>) -> Result<Vec<u8>> {
 
     let pre_wizer_component = wit_component::Linker::default()
         .validate(true)
-        .library(
-            "dwarf_runtime.wasm",
-            runtime_wasm(opts.runtime),
-            false,
-        )?
+        .library("dwarf_runtime.wasm", runtime_wasm(opts.runtime), false)?
         .library("wit-dylib.wasm", &wit_dylib, false)?
         .adapter(
             "wasi_snapshot_preview1",
@@ -383,10 +379,14 @@ fn known_wasi_io_resource(
     }
     match item_name {
         "input-stream" if parent_instance.starts_with("wasi:io/streams@") => {
-            Some(ResourceType::host::<wasmtime_wasi_io::streams::DynInputStream>())
+            Some(ResourceType::host::<
+                wasmtime_wasi_io::streams::DynInputStream,
+            >())
         }
         "output-stream" if parent_instance.starts_with("wasi:io/streams@") => {
-            Some(ResourceType::host::<wasmtime_wasi_io::streams::DynOutputStream>())
+            Some(ResourceType::host::<
+                wasmtime_wasi_io::streams::DynOutputStream,
+            >())
         }
         "pollable" if parent_instance.starts_with("wasi:io/poll@") => {
             Some(ResourceType::host::<wasmtime_wasi_io::poll::DynPollable>())

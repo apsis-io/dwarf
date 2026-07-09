@@ -125,7 +125,8 @@ pub fn resolve_shim_suffix(names: &[impl AsRef<str>]) -> Result<String> {
     let mut out = String::new();
     for name in names {
         let polyfill = find(name.as_ref())?;
-        let raw = load_override(&format!("{}.js", polyfill.name)).unwrap_or_else(|| polyfill.source.to_string());
+        let raw = load_override(&format!("{}.js", polyfill.name))
+            .unwrap_or_else(|| polyfill.source.to_string());
         let source = TRAILING_EXPORT_RE.replace(&raw, "");
         out.push_str("(function() {\n");
         out.push_str(&source);
@@ -149,7 +150,10 @@ pub fn dts_for(names: &[impl AsRef<str>]) -> Result<String> {
     }
     for name in names {
         let polyfill = find(name.as_ref())?;
-        out.push_str(&load_override(&format!("{}.d.ts", polyfill.name)).unwrap_or_else(|| polyfill.dts.to_string()));
+        out.push_str(
+            &load_override(&format!("{}.d.ts", polyfill.name))
+                .unwrap_or_else(|| polyfill.dts.to_string()),
+        );
         out.push('\n');
     }
     Ok(out)
@@ -225,7 +229,8 @@ fn generate_builtins(lines: &mut Vec<String>) {
     lines.push("  return p;".into());
     lines.push("};".into());
     lines.push("globalThis.__dwarfDrainPendingWrites = function() {".into());
-    lines.push("  if (globalThis.__dwarfPendingWrites.size === 0) return Promise.resolve();".into());
+    lines
+        .push("  if (globalThis.__dwarfPendingWrites.size === 0) return Promise.resolve();".into());
     lines.push(
         "  return Promise.allSettled(Array.from(globalThis.__dwarfPendingWrites)).then(function() {"
             .into(),
@@ -274,8 +279,9 @@ fn generate_builtins(lines: &mut Vec<String>) {
     lines.push("      const b0 = bytes[i];".into());
     lines.push("      if (b0 < 0x80) { out += String.fromCharCode(b0); i += 1; }".into());
     lines.push("      else if ((b0 & 0xe0) === 0xc0 && i + 1 < len) {".into());
-    lines.push("        out += String.fromCharCode(((b0 & 0x1f) << 6) | (bytes[i + 1] & 0x3f));"
-        .into());
+    lines.push(
+        "        out += String.fromCharCode(((b0 & 0x1f) << 6) | (bytes[i + 1] & 0x3f));".into(),
+    );
     lines.push("        i += 2;".into());
     lines.push("      } else if ((b0 & 0xf0) === 0xe0 && i + 2 < len) {".into());
     lines.push("        out += String.fromCharCode(((b0 & 0x0f) << 12) | ((bytes[i + 1] & 0x3f) << 6) | (bytes[i + 2] & 0x3f));".into());
@@ -545,7 +551,9 @@ fn generate_process(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
     }
 
     if has_exit {
-        lines.push("  exit(code) { __processExit.exitWithCode(((code ?? 0) & 0xff) >>> 0); },".into());
+        lines.push(
+            "  exit(code) { __processExit.exitWithCode(((code ?? 0) & 0xff) >>> 0); },".into(),
+        );
     } else {
         lines.push("  exit() { throw new Error(\"process.exit requires importing wasi:cli/exit (e.g. add `import wasi:cli/exit@0.2.x;` to your WIT world)\"); },".into());
     }

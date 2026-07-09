@@ -1,8 +1,11 @@
 name: Release-plz
 
+# Disabled automatic runs on this fork: the publish pipeline (crates.io Trusted
+# Publishing, npm, GHCR) is wired to upstream's (andreiltd/componentize-qjs)
+# identity and can't succeed here. Left as workflow_dispatch in case it's ever
+# needed manually.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions: {}
 

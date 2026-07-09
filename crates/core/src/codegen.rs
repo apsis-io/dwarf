@@ -75,7 +75,10 @@ impl<'a> EmitContext<'a> {
             self.emit_constructor("Future", "__cqjs.makeFuture", &futures);
         }
 
-        self.line(&polyfills::generate_wasi_polyfills(self.resolve, self.world_id));
+        self.line(&polyfills::generate_wasi_polyfills(
+            self.resolve,
+            self.world_id,
+        ));
     }
 
     fn emit_constructor(&mut self, name: &str, native_fn: &str, types: &[Option<Type>]) {
