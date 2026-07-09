@@ -166,12 +166,11 @@ function readBlobAsText(blob) {
   return promise;
 }
 function readArrayBufferAsText(buf) {
-  var view = new Uint8Array(buf);
-  var chars = new Array(view.length);
-  for (var i = 0;i < view.length; i++) {
-    chars[i] = String.fromCharCode(view[i]);
-  }
-  return chars.join("");
+  // Real UTF-8 decoding (dwarf's always-on TextDecoder, verified
+  // byte-for-byte against the real API) - not per-byte
+  // String.fromCharCode, which is Latin-1-style and corrupts any
+  // multi-byte UTF-8 character.
+  return new TextDecoder().decode(new Uint8Array(buf));
 }
 function bufferClone(buf) {
   if (buf.slice) {
