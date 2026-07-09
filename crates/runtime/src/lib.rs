@@ -63,6 +63,20 @@ struct JsState {
     context: Context,
     /// Ensures the JavaScript source is only evaluated once during initialization.
     evaluated: AtomicBool,
+    /// Whether `local:init/module-loader` (real filesystem-backed module
+    /// resolution) is actually linked and safe to call. True throughout
+    /// Wizer's own build-time module evaluation (`init_js`, where it's
+    /// genuinely available); flipped to false right after that finishes -
+    /// which, since Wizer snapshots state at exactly that point, means
+    /// every real-runtime instantiation of the built component starts with
+    /// this already false. `stub_internal_imports` (crates/core/src/
+    /// stubwasi.rs) replaces the import with an unconditionally-trapping
+    /// stub for the final shipped component, so a dynamic `import()`
+    /// reached at real runtime (a resolver/loader call made after this
+    /// flips) must never actually attempt that call - see
+    /// `module::host::{HostModuleResolver, HostModuleLoader}`, which check
+    /// this first and throw a normal catchable JS error instead.
+    module_loader_available: Cell<bool>,
     /// Cached active context pointer for re-entrant `with_ctx` calls.
     ctx_ptr: Cell<Option<*const ()>>,
 }
@@ -138,6 +152,7 @@ impl JsState {
             JsState {
                 context,
                 evaluated: Default::default(),
+                module_loader_available: Cell::new(true),
                 ctx_ptr: Default::default(),
             }
         })
@@ -283,7 +298,19 @@ fn init_js(
         abi::__wasilibc_reset_preopens();
     }
 
+    // From here on `local:init/module-loader` is no longer safe to call -
+    // see `JsState::module_loader_available`'s doc comment. Wizer snapshots
+    // state at exactly this point, so every real-runtime instantiation of
+    // the built component starts with this already false.
+    state.module_loader_available.set(false);
+
     Ok(())
+}
+
+/// Whether `local:init/module-loader` is still safe to call (see
+/// `JsState::module_loader_available`).
+pub(crate) fn module_loader_available() -> bool {
+    JsState::get_or_init().module_loader_available.get()
 }
 
 /// Delegates to `JsState::with_ctx`.

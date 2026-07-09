@@ -202,6 +202,22 @@ default the CLI uses the current directory when the entry file is under it, or
 the entry file's parent directory otherwise. Use `--module-root <PATH>` to expose
 a project root that contains shared files or `node_modules`.
 
+**Static `import` only — dynamic `import()` doesn't work at runtime.**
+Resolving a module needs real filesystem access, which only exists during
+Wizer's build-time pre-init (where module resolution runs); the actual
+runtime a component executes in later has no such capability. Every
+`import`/`import()` your code can reach must be resolvable at build time —
+which in practice means only ever calling `import()` from top-level module
+code (so it runs during Wizer's own pre-init, not deferred until a real
+request/export call). A bundled third-party library that does its *own*
+dynamic `import()` lazily — e.g. only the first time a particular code path
+actually runs, rather than at module load — throws a normal, catchable
+`Error` the moment that path is reached at real runtime, naming the module
+it tried to load. If a bundled dependency does this, configure your
+bundler to inline dynamic imports rather than emit runtime `import()`
+calls — e.g. Rollup/Vite's
+`build.rollupOptions.output.inlineDynamicImports: true`.
+
 ### Composable Capability Components
 
 Some WASI capabilities (`wasi:http/client` in particular) need constructing
