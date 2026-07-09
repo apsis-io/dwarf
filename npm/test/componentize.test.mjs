@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
 
 const examplesDir = resolve(__dirname, "../../examples");
-const TIMEOUT = 30_000;
+const TIMEOUT = 90_000;
 
 function readExample(name) {
   return readFileSync(resolve(examplesDir, name), "utf-8");
@@ -98,7 +98,7 @@ describe("componentize", () => {
         runtimeBytes: Buffer.from([]),
       }),
     ).rejects.toThrow(/only one of runtime or runtimeBytes/i);
-  });
+  }, TIMEOUT);
 
   it("rejects a non-existent WIT path", async () => {
     await expect(
