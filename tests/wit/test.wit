@@ -7,6 +7,18 @@ world wasi-random {
     export get-random-bytes: func(len: u32) -> list<u8>;
 }
 
+// For the `webcrypto` polyfill tests (tests/webcrypto.rs) - `run` is async
+// because crypto.subtle's methods are all Promise-returning.
+world webcrypto-test {
+    import wasi:random/random@0.2.12;
+
+    export run: async func() -> string;
+}
+
+world webcrypto-no-random {
+    export run: async func() -> string;
+}
+
 world wasi-clocks {
     import wasi:clocks/monotonic-clock@0.2.12;
 

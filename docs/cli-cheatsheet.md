@@ -78,6 +78,7 @@ DWARF_POLYFILLS_DIR=/path/to/dwarf/crates/core/polyfills \
 | `fetch-classes` | `Headers`, `Request`, `Response`, `DOMException` (no `fetch()` itself) |
 | `path` | `path` module (join/dirname/basename/etc., matches Node's shape) |
 | `readable-stream` | `ReadableStream`, `wit.readableStreamFromStream(readable)` |
+| `webcrypto` | `crypto.subtle` (digest, HMAC, ECDSA/ECDH P-256/P-384, HKDF, AES-GCM — @noble/hashes+curves+ciphers). A subset, not full spec parity — see webcrypto.d.ts. `crypto.getRandomValues` is always-on (below), independent of this flag |
 
 Unknown name → build error listing valid names. Full details, caveats, and
 attributions: README's [Polyfills](../README.md#polyfills) section and
@@ -91,6 +92,7 @@ attributions: README's [Polyfills](../README.md#polyfills) section and
 | `console.log/info/debug/warn/error` | `wasi:cli/stdout`/`stderr` — prefers 0.2 (sync); falls back to 0.3 `write-via-stream` (Promise-returning) if only that's imported |
 | `console.print/println/eprint/eprintln` | Same interfaces, always async (Promise-returning) regardless of version |
 | `process.env/argv/cwd()/exit()` | `wasi:cli/environment`/`exit` (same shape in 0.2 and 0.3) |
+| `crypto.getRandomValues` | `wasi:random/random#get-random-bytes` |
 
 `console`/`process` throw a clear error naming the missing import if the world
 doesn't provide either WASI version — see README's [Console](../README.md#console)

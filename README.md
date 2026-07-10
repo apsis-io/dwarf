@@ -380,6 +380,10 @@ Wizer-snapshot-timing concern as `console`'s stdout handle.
 QuickJS runtime doesn't provide them natively, but they're foundational
 enough (no WIT/host dependency, needed internally by other polyfills like
 `url`) to include unconditionally rather than gate behind a flag.
+`crypto.getRandomValues` is likewise always available, wired to
+`wasi:random/random#get-random-bytes` when the world imports it (throws a
+clear error otherwise, matching `console`/`process` below) — independent of
+`--polyfill webcrypto`, which only adds `crypto.subtle`.
 
 Beyond that, `--polyfill <name>` (repeatable) includes vendored third-party
 libraries with no WIT/host dependency at all — opt-in, since (unlike
@@ -393,6 +397,7 @@ wanted" from:
 | `fetch-classes` | `Headers`, `Request`, `Response`, `DOMException` | [whatwg-fetch](https://github.com/JakeChampion/fetch), trimmed to just the classes (its `fetch()` itself, which uses `XMLHttpRequest`, is excluded — pair with your own `fetch()` wired to a real WASI HTTP import) |
 | `path` | `path` (`.join`, `.dirname`, `.basename`, etc. — matches Node's `path` module shape) | [unjs/pathe](https://github.com/unjs/pathe), fast and dependency-free |
 | `readable-stream` | `ReadableStream`, `wit.readableStreamFromStream(readable)` | Hand-written (not vendored), verified against real `ReadableStream` — minimal pull-based-controller subset (no BYOB readers, `tee()`, or `pipeTo`/`pipeThrough`), matching what libraries like h3 actually use for streaming response bodies. The bridge helper wraps a `wit.Stream()` readable end for handing a WASI-backed body to code expecting the standard interface — single-read only, same reason as `fetch-provider`'s documented limitation (see below) |
+| `webcrypto` | `crypto.subtle` (`digest`, HMAC, ECDSA/ECDH on P-256/P-384, HKDF, AES-GCM) | [@noble/hashes](https://github.com/paulmillr/noble-hashes) + [@noble/curves](https://github.com/paulmillr/noble-curves) + [@noble/ciphers](https://github.com/paulmillr/noble-ciphers), wrapped in a hand-written `crypto.subtle` covering a deliberate subset of the real Web Crypto API — no RSA, AES-CBC/CTR, PBKDF2, spki/pkcs8 DER (only `"raw"`/`"jwk"`), or Ed25519/X25519. `generateKey` needs `crypto.getRandomValues` (above), which needs `wasi:random/random` imported |
 
 An unknown `--polyfill` name is a build error listing the available names.
 See [NOTICES](NOTICES) for full attribution of vendored polyfill code.

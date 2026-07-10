@@ -68,6 +68,12 @@ pub const POLYFILLS: &[Polyfill] = &[
         install: "globalThis.path = { join, dirname, basename, extname, resolve, relative, normalize, isAbsolute, parse, format, delimiter, sep, posix, win32, matchesGlob, toNamespacedPath, normalizeString };",
         dts: include_str!("../polyfills/path.d.ts"),
     },
+    Polyfill {
+        name: "webcrypto",
+        source: include_str!("../polyfills/webcrypto.js"),
+        install: "globalThis.crypto = globalThis.crypto || {}; globalThis.crypto.subtle = subtle;",
+        dts: include_str!("../polyfills/webcrypto.d.ts"),
+    },
 ];
 
 /// `.d.ts` for globals dwarf always provides, regardless of `--polyfill` -
@@ -203,6 +209,7 @@ pub(crate) fn generate_wasi_polyfills(resolve: &Resolve, world_id: WorldId) -> S
     generate_builtins(&mut lines);
     generate_console(resolve, world_id, &mut lines);
     generate_process(resolve, world_id, &mut lines);
+    generate_crypto_get_random_values(resolve, world_id, &mut lines);
     lines.join("\n") + "\n"
 }
 
@@ -271,7 +278,17 @@ fn generate_builtins(lines: &mut Vec<String>) {
     lines.push("globalThis.TextDecoder = class TextDecoder {".into());
     lines.push("  constructor(label = 'utf-8') { this.encoding = label; }".into());
     lines.push("  decode(input) {".into());
-    lines.push("    const bytes = input ?? [];".into());
+    // A raw ArrayBuffer (as returned by e.g. the webcrypto polyfill's
+    // subtle.decrypt, matching the real spec) has no `.length`/numeric
+    // indexing of its own - only ArrayBufferView (TypedArray/DataView) does.
+    // Passing one through unwrapped silently decoded as "" (len === undefined
+    // makes the loop below never run) instead of throwing or working -
+    // wrap it in a Uint8Array view first, matching TextDecoder's real
+    // `BufferSource = ArrayBuffer | ArrayBufferView` input type.
+    lines.push(
+        "    const bytes = input == null ? [] : (input instanceof ArrayBuffer ? new Uint8Array(input) : input);"
+            .into(),
+    );
     lines.push("    let out = '';".into());
     lines.push("    let i = 0;".into());
     lines.push("    const len = bytes.length;".into());
@@ -559,4 +576,48 @@ fn generate_process(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
     }
 
     lines.push("});".into());
+}
+
+/// Wires `crypto.getRandomValues` to `wasi:random/random#get-random-bytes`
+/// when the world imports it - always generated (matching `console`/
+/// `process`'s "wired automatically, clear error if the backing import is
+/// missing" convention), independent of the `webcrypto` static polyfill
+/// (`--polyfill webcrypto`, `crates/core/polyfills/webcrypto.js`) which
+/// provides `crypto.subtle` and has no WIT/host dependency of its own.
+/// Runs before that static polyfill's install line (`generate_wasi_polyfills`
+/// is emitted into the shim ahead of `resolve_shim_suffix`, see
+/// `lib.rs::componentize`), which matters because `@noble/*`'s own
+/// `randomBytes()` helper calls `globalThis.crypto.getRandomValues`
+/// internally (confirmed by reading `@noble/hashes/utils.js`) - so
+/// `crypto.subtle.generateKey` works transparently once this is wired,
+/// with no extra glue needed in the static polyfill itself.
+fn generate_crypto_get_random_values(
+    resolve: &Resolve,
+    world_id: WorldId,
+    lines: &mut Vec<String>,
+) {
+    let has_random = has_wasi_function(
+        resolve,
+        world_id,
+        "wasi",
+        "random",
+        "random",
+        "get-random-bytes",
+    );
+
+    lines.push("globalThis.crypto = globalThis.crypto || {};".into());
+
+    if has_random {
+        lines.push(r#"import __wasiRandom from "wasi:random/random";"#.into());
+        lines.push("globalThis.crypto.getRandomValues = function(typedArray) {".into());
+        lines.push("  const bytes = __wasiRandom.getRandomBytes(typedArray.byteLength);".into());
+        lines.push(
+            "  new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength).set(bytes);"
+                .into(),
+        );
+        lines.push("  return typedArray;".into());
+        lines.push("};".into());
+    } else {
+        lines.push("globalThis.crypto.getRandomValues = function() { throw new Error(\"crypto.getRandomValues requires importing wasi:random/random (e.g. add `import wasi:random/random;` to your WIT world)\"); };".into());
+    }
 }

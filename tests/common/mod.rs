@@ -65,6 +65,7 @@ pub struct TestCase {
     env_vars: Vec<(String, String)>,
     stdin: Option<String>,
     expectations: Vec<Expectation>,
+    polyfills: Vec<String>,
 }
 
 impl TestCase {
@@ -78,6 +79,7 @@ impl TestCase {
             env_vars: Vec::new(),
             stdin: None,
             expectations: Vec::new(),
+            polyfills: Vec::new(),
         }
     }
 
@@ -106,6 +108,12 @@ impl TestCase {
 
     pub fn stub_wasi(mut self) -> Self {
         self.stub_wasi = true;
+        self
+    }
+
+    /// Include static (non-WASI) polyfills, e.g. `["webcrypto"]`.
+    pub fn polyfills(mut self, names: &[&str]) -> Self {
+        self.polyfills = names.iter().map(|s| s.to_string()).collect();
         self
     }
 
@@ -143,6 +151,7 @@ impl TestCase {
             p
         };
 
+        let polyfill_refs: Vec<&str> = self.polyfills.iter().map(String::as_str).collect();
         let opts = ComponentizeOpts {
             wit_path: &wit_path,
             js_source: self.script.as_deref().unwrap(),
@@ -151,7 +160,7 @@ impl TestCase {
             world_name: self.world_name.as_deref(),
             stub_wasi: self.stub_wasi,
             auto_vendor: false,
-            polyfills: &[],
+            polyfills: &polyfill_refs,
             disable_gc: false,
             runtime: Runtime::Default,
         };
@@ -176,6 +185,7 @@ impl TestCase {
             p
         };
 
+        let polyfill_refs: Vec<&str> = self.polyfills.iter().map(String::as_str).collect();
         let opts = ComponentizeOpts {
             wit_path: &wit_path,
             js_source: self.script.as_deref().unwrap(),
@@ -184,7 +194,7 @@ impl TestCase {
             world_name: self.world_name.as_deref(),
             stub_wasi: self.stub_wasi,
             auto_vendor: false,
-            polyfills: &[],
+            polyfills: &polyfill_refs,
             disable_gc: false,
             runtime: Runtime::Default,
         };
