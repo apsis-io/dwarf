@@ -329,6 +329,37 @@ fn test_all_integer_types() {
 }
 
 #[test]
+fn test_u64_s64_accept_bigint() {
+    // rquickjs's numeric FromJs/IntoJs for u64/s64 always round-trips
+    // through f64 (a plain JS `number`), so passing a JS `BigInt` - an easy
+    // mistake for a 64-bit WIT type, and what a real WIT u64 param bound as
+    // `number` naturally tempts someone to try - used to panic with a raw
+    // `FromJs { from: "big_int", to: "f64", .. }` instead of just working.
+    // See crates/runtime/src/call.rs's `value_to_i64`.
+    TestCase::new()
+        .wit(
+            r#"
+            package test:bigint;
+            world bigint-u64 {
+                export make-u64: func() -> u64;
+                export make-s64: func() -> s64;
+            }
+        "#,
+        )
+        .script(
+            r#"
+            export function makeU64() { return 18446744073709551615n; }
+            export function makeS64() { return -9223372036854775808n; }
+        "#,
+        )
+        .expect_call("make-u64", vec![], Val::U64(u64::MAX))
+        .expect_call("make-s64", vec![], Val::S64(i64::MIN))
+        .build()
+        .unwrap()
+        .run();
+}
+
+#[test]
 fn test_float_types() {
     TestCase::new()
         .wit(

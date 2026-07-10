@@ -28,6 +28,39 @@ fn option_is_nested(ty: WitOption) -> bool {
     }
 }
 
+/// Read a JS value as a `u64`, accepting both a plain `number` (the
+/// convention every WIT u64 uses, both directions) and a `bigint` (an easy
+/// mistake to make for a 64-bit WIT type, and otherwise a confusing
+/// `FromJs { from: "big_int", to: "f64", .. }` panic since rquickjs's
+/// numeric `FromJs` impls only round-trip through `f64`). The `u64`-typed
+/// `get` (not `i64`) matters here: a value above `i64::MAX` (e.g. a real
+/// `wasi:random/random#get-random-u64` result) is still a valid plain-number
+/// `u64` and must not be range-checked against `i64`'s narrower span.
+fn value_to_u64(v: &Value<'_>) -> u64 {
+    if v.is_big_int() {
+        v.clone()
+            .into_big_int()
+            .expect("expected bigint")
+            .to_i64()
+            .expect("bigint out of range for a 64-bit WIT integer") as u64
+    } else {
+        v.get::<u64>().expect("expected number or bigint")
+    }
+}
+
+/// As `value_to_u64`, for `s64`.
+fn value_to_i64(v: &Value<'_>) -> i64 {
+    if v.is_big_int() {
+        v.clone()
+            .into_big_int()
+            .expect("expected bigint")
+            .to_i64()
+            .expect("bigint out of range for a 64-bit WIT integer")
+    } else {
+        v.get::<i64>().expect("expected number or bigint")
+    }
+}
+
 /// Pop a value from the stack, restore it in the current JS context, and transform it.
 fn pop_with<R: 'static>(cx: &mut QjsCallContext, f: impl FnOnce(Value<'_>) -> R) -> R {
     let persistent = cx.pop_persistent();
@@ -120,11 +153,11 @@ impl Call for QjsCallContext {
     }
 
     fn pop_u64(&mut self) -> u64 {
-        pop_with(self, |v| v.get().expect("expected number"))
+        pop_with(self, |v| value_to_u64(&v))
     }
 
     fn pop_s64(&mut self) -> i64 {
-        pop_with(self, |v| v.get().expect("expected number"))
+        pop_with(self, |v| value_to_i64(&v))
     }
 
     fn pop_f32(&mut self) -> f32 {
