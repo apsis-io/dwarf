@@ -214,6 +214,58 @@ async fn test_async_echo_option() {
 }
 
 #[tokio::test]
+async fn test_async_reject_with_error_object() {
+    // A rejection reason arrives at `ResultBoundary::lower_throw` as a plain
+    // `Value`, not something obtained via `ctx.catch()` - so classifying it
+    // as `CaughtError::Exception` (real `Error` instance, richer `Display`
+    // with message + stack) vs `CaughtError::Value` (generic fallback) has
+    // to be done by hand (see `result.rs`'s `classify_caught`). This
+    // exercises both representable shapes (a `string` err type extracting
+    // `.message`, and a `.payload`-bearing err for a structured err type)
+    // through a real `Error` object (not a bare string, unlike
+    // `test_async_echo_result` above) to confirm that classification still
+    // lowers correctly, not just that it changed panic-message formatting
+    // for the *un*representable case.
+    let mut instance = TestCase::new()
+        .wit(
+            r#"
+            package test:async-reject-error;
+            world async-reject-error {
+                export string-error: async func() -> result<_, string>;
+                export payload-error: async func() -> result<_, u32>;
+            }
+            "#,
+        )
+        .script(
+            r#"
+            export async function stringError() {
+                throw new Error("async rejection message");
+            }
+
+            export async function payloadError() {
+                const error = new Error("ignored");
+                error.payload = 7;
+                throw error;
+            }
+            "#,
+        )
+        .build_async()
+        .await
+        .unwrap();
+
+    let result = instance.call1_async("string-error", &[]).await.unwrap();
+    assert_eq!(
+        result,
+        Val::Result(Err(Some(Box::new(Val::String(
+            "async rejection message".into()
+        )))))
+    );
+
+    let result = instance.call1_async("payload-error", &[]).await.unwrap();
+    assert_eq!(result, Val::Result(Err(Some(Box::new(Val::U32(7))))));
+}
+
+#[tokio::test]
 async fn test_async_echo_result() {
     let mut instance = TestCase::new()
         .wit(

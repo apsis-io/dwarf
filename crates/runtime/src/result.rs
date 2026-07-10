@@ -7,8 +7,8 @@
 use rquickjs::function::Args;
 use rquickjs::object::Property;
 use rquickjs::{
-    CatchResultExt, CaughtError, CaughtResult, Constructor, Ctx, Function, Object, Persistent,
-    Result, Value,
+    CatchResultExt, CaughtError, CaughtResult, Constructor, Ctx, Exception, Function, Object,
+    Persistent, Result, Value,
 };
 use wit_dylib_ffi::{Type, WitResult};
 
@@ -135,12 +135,20 @@ impl ResultBoundary {
     }
 
     /// Lower a rejected async JS export into a canonical return value.
+    ///
+    /// A promise rejection reason arrives as a plain `Value`, not something
+    /// obtained via `ctx.catch()` - so unlike `CaughtError::from_error`, there's
+    /// no automatic Exception-vs-Value classification. Do it here too: a real
+    /// `Error`/subclass gets the richer `Exception` variant (message + stack,
+    /// via its own `Display`) instead of the generic `Value` variant's bare
+    /// `{:?}` fallback, which matters when this ends up in a diagnostic
+    /// message (see `bindings.rs`'s async export dispatch).
     pub(crate) fn lower_throw<'js>(
         &self,
         ctx: &Ctx<'js>,
         reason: Value<'js>,
     ) -> CaughtResult<'js, Option<Value<'js>>> {
-        self.lower_caught(ctx, Err(CaughtError::Value(reason)))
+        self.lower_caught(ctx, Err(classify_caught(reason)))
     }
 
     /// Lower a fulfilled async JS export into a canonical return value.
@@ -175,6 +183,17 @@ impl ResultBoundary {
             Err(err) => Ok(Some(tagged_err(ctx, result_ty, err)?)),
         }
     }
+}
+
+/// Classify a plain JS value as `CaughtError`'s richer `Exception` variant
+/// when it's actually an `Error`/subclass instance, matching what
+/// `CaughtError::from_error` would do for a value obtained via `ctx.catch()`.
+fn classify_caught<'js>(value: Value<'js>) -> CaughtError<'js> {
+    value
+        .as_object()
+        .and_then(|obj| Exception::from_object(obj.clone()))
+        .map(CaughtError::Exception)
+        .unwrap_or_else(|| CaughtError::Value(value))
 }
 
 fn resolve_alias(mut ty: Type) -> Type {
@@ -250,7 +269,7 @@ fn result_error_payload<'js>(
     }
 
     if reason.is_error() {
-        return Err(CaughtError::Value(reason));
+        return Err(classify_caught(reason));
     }
 
     Ok(reason)

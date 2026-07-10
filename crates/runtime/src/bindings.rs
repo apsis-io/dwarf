@@ -3,9 +3,9 @@ use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use rquickjs::Persistent;
 use rquickjs::function;
 use rquickjs::function::{Constructor, Rest, This};
-use rquickjs::{Ctx, Function, Object, Value};
+use rquickjs::{CaughtError, Ctx, Function, Object, Value};
 use smallvec::SmallVec;
-use wit_dylib_ffi::{Resource, Wit};
+use wit_dylib_ffi::{ExportFunction, Resource, Wit};
 
 use crate::CtxExt;
 use crate::futures::{make_future, register_future_classes};
@@ -274,6 +274,31 @@ fn call_import<'js>(
     }
 }
 
+/// Describes why an async export's settled promise couldn't be lowered into
+/// its declared WIT result type - the one case `ResultBoundary::lower_value`/
+/// `lower_throw` can genuinely never handle: a non-`string` `err` type (e.g. a
+/// `variant`/`enum`/`record`, common for things like `wasi:http`'s
+/// `error-code`) has no generic mapping from an arbitrary thrown/returned JS
+/// value, so there's no way to synthesize a matching payload. Names the
+/// export (interface + function) so this reads as "your export did X" rather
+/// than an unattributed internal crash, and uses `e`'s `Display` (richer for
+/// a real thrown `Error`, including its stack, once `lower_throw`/
+/// `result_error_payload` classify it as `CaughtError::Exception` rather than
+/// the generic `Value` fallback - see `result.rs`).
+fn describe_lower_failure(func: &ExportFunction, phase: &str, e: CaughtError<'_>) -> String {
+    let qualified = match func.interface() {
+        Some(iface) => format!("{iface}.{}", func.name()),
+        None => func.name().to_string(),
+    };
+    format!(
+        "async export '{qualified}' {phase} a value that can't be represented as its \
+         declared WIT result type - its `err` type isn't `string` and the value has no \
+         `.payload` property matching the expected shape. Either await/catch this in your \
+         JS and throw a plain string or an Error with a `.payload` property shaped like the \
+         WIT error, or avoid throwing an unrelated error from this export. Original error: {e}"
+    )
+}
+
 /// EXPERIMENTAL: before signaling `task_return`, drains any outstanding
 /// fire-and-forget writes registered via the console polyfill's
 /// `__dwarfTrackWrite` (see `crates/core/src/polyfills.rs`) - so a library
@@ -438,7 +463,7 @@ fn build_async_exports<'js>(
                         let mut call = QjsCallContext::default();
 
                         let value = boundary.lower_value(&ctx, value).unwrap_or_else(|e| {
-                            panic!("Call failed '{}': {:?}", "async export", e)
+                            panic!("{}", describe_lower_failure(&func, "resolved with", e))
                         });
 
                         if let Some(value) = value {
@@ -461,7 +486,7 @@ fn build_async_exports<'js>(
                         let boundary = ResultBoundary::new(func.result());
                         let mut call = QjsCallContext::default();
                         let value = boundary.lower_throw(&ctx, reason).unwrap_or_else(|e| {
-                            panic!("Call failed '{}': {:?}", "async export", e)
+                            panic!("{}", describe_lower_failure(&func, "rejected with", e))
                         });
 
                         if let Some(value) = value {
