@@ -230,14 +230,24 @@ Some WASI capabilities (`wasi:http/client` in particular) need constructing
 resources — headers, request bodies as `stream<u8>`, trailers as `future<T>`
 — whose `wit.Stream`/`wit.Future` type indices are auto-assigned per
 component based on everything else in that component's own WIT world. That
-makes them a poor fit for glue code meant to drop into an arbitrary caller's
-world. The better pattern: build the capability as its own small, focused
+makes them a poor fit for **prebuilt, reusable glue meant to be composed
+into many different consumers without recompiling** (a real, standalone
+component's own fixed indices can't reliably match an arbitrary caller's).
+The pattern for that case: build the capability as its own small, focused
 component (a fixed world, so its indices are fixed and known) that exports a
 plain-types-only interface — strings, lists, records, no resources/streams/
 futures crossing the boundary — and compose it into your own component with
 [`wac plug`](https://github.com/bytecodealliance/wac). See
 [`examples/fetch-provider`](examples/fetch-provider) for a complete,
 verified-against-real-HTTP-servers example of this pattern.
+
+This constraint does *not* apply to dwarf's own codegen, though, which
+generates fresh JS for each consuming component's own specific WIT world at
+build time and so always has the right indices for that world — which is
+why the global `fetch()` polyfill (`--polyfill fetch-classes`, see
+[Polyfills](#polyfills)) can wire directly to `wasi:http/client` without
+needing a separate composed component at all, for the common case of one
+component wanting its own `fetch()`.
 
 ### Vendoring WIT Dependencies
 
@@ -374,15 +384,56 @@ the same way Node itself truncates exit codes outside 0-255. `env`/`argv`
 are always re-fetched on access rather than cached, matching the same
 Wizer-snapshot-timing concern as `console`'s stdout handle.
 
+## Timers
+
+`setTimeout`/`setInterval` are wired to
+`wasi:clocks/monotonic-clock@0.3.x`'s `wait-for` (a genuine `async func`,
+directly awaitable) when the world imports it — throws a clear error
+otherwise. WASI 0.2's `monotonic-clock` has no non-blocking wait primitive
+at all (only `subscribe-duration` + `wasi:io/poll`'s `pollable`, which
+*blocks* the whole component — the opposite of what `setTimeout` is for),
+so only 0.3 is supported. `clearTimeout`/`clearInterval` are always defined
+and never throw, even in a world where `setTimeout` itself would.
+
+```wit
+world poller {
+    import wasi:clocks/monotonic-clock@0.3.0;
+    export run: async func() -> string;
+}
+```
+
+```js
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function run() {
+    await sleep(100);
+    return "done";
+}
+```
+
+**Important caveat, unavoidable under component-model-async:** once the
+async export that (transitively) called `setTimeout`/`setInterval` settles,
+any still-pending timer callback that wasn't part of the explicitly-awaited
+chain is cancelled along with the rest of that task — there is no way for
+dwarf to keep a timer alive past its originating export call the way a real
+JS host's event loop would. Reliable only when awaited (as in `sleep`
+above) or when called from a still-running, long-lived export.
+
 ## Polyfills
 
 `TextEncoder`/`TextDecoder` (UTF-8 only) are always available — dwarf's
 QuickJS runtime doesn't provide them natively, but they're foundational
 enough (no WIT/host dependency, needed internally by other polyfills like
 `url`) to include unconditionally rather than gate behind a flag.
-`crypto.getRandomValues` is likewise always available, wired to
+`AbortController`/`AbortSignal` are likewise always available and have real
+semantics (`abort()` flips `aborted`, sets `reason`, fires
+`onabort`/`'abort'` listeners) — nothing in dwarf's own `fetch()` observes
+`signal` yet, but a caller polling `signal.aborted` in its own loop works
+today. `crypto.getRandomValues` is likewise always available, wired to
 `wasi:random/random#get-random-bytes` when the world imports it (throws a
-clear error otherwise, matching `console`/`process` below) — independent of
+clear error otherwise, matching `console`/`process` above) — independent of
 `--polyfill webcrypto`, which only adds `crypto.subtle`.
 
 Beyond that, `--polyfill <name>` (repeatable) includes vendored third-party
@@ -394,7 +445,7 @@ wanted" from:
 |---|---|---|
 | `buffer` | `Buffer` | [feross/buffer](https://github.com/feross/buffer), Node's `Buffer` reimplemented on `Uint8Array` |
 | `url` | `URL`, `URLSearchParams` | [whatwg-url](https://github.com/jsdom/whatwg-url), spec-compliant including internationalized domain names — ~750KB before Wizer snapshotting (mostly Unicode/IDNA tables), only paid by components that request it |
-| `fetch-classes` | `Headers`, `Request`, `Response`, `DOMException` | [whatwg-fetch](https://github.com/JakeChampion/fetch), trimmed to just the classes (its `fetch()` itself, which uses `XMLHttpRequest`, is excluded — pair with your own `fetch()` wired to a real WASI HTTP import) |
+| `fetch-classes` | `Headers`, `Request`, `Response`, `DOMException` | [whatwg-fetch](https://github.com/JakeChampion/fetch), trimmed to just the classes. Requesting this polyfill also enables a real global `fetch()` (always-on, not gated by this flag itself — see below), wired directly to `wasi:http/client@0.3.x` when the world imports it |
 | `path` | `path` (`.join`, `.dirname`, `.basename`, etc. — matches Node's `path` module shape) | [unjs/pathe](https://github.com/unjs/pathe), fast and dependency-free |
 | `readable-stream` | `ReadableStream`, `wit.readableStreamFromStream(readable)` | Hand-written (not vendored), verified against real `ReadableStream` — minimal pull-based-controller subset (no BYOB readers, `tee()`, or `pipeTo`/`pipeThrough`), matching what libraries like h3 actually use for streaming response bodies. The bridge helper wraps a `wit.Stream()` readable end for handing a WASI-backed body to code expecting the standard interface — single-read only, same reason as `fetch-provider`'s documented limitation (see below) |
 | `webcrypto` | `crypto.subtle` (`digest`, HMAC, ECDSA/ECDH on P-256/P-384, HKDF, AES-GCM) | [@noble/hashes](https://github.com/paulmillr/noble-hashes) + [@noble/curves](https://github.com/paulmillr/noble-curves) + [@noble/ciphers](https://github.com/paulmillr/noble-ciphers), wrapped in a hand-written `crypto.subtle` covering a deliberate subset of the real Web Crypto API — no RSA, AES-CBC/CTR, PBKDF2, spki/pkcs8 DER (only `"raw"`/`"jwk"`), or Ed25519/X25519. `generateKey` needs `crypto.getRandomValues` (above), which needs `wasi:random/random` imported |

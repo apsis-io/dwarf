@@ -6,13 +6,27 @@ components** rather than imported as source.
 
 ## Why a separate component, not a polyfill
 
+**Update:** dwarf now ships a direct `fetch()` polyfill (`--polyfill
+fetch-classes`, see the main README's [Polyfills](../../README.md#polyfills)
+section) that wires straight to `wasi:http/client` without a separate
+composed component at all — because dwarf's own codegen generates fresh JS
+per consuming world, it always has the right indices for that world, unlike
+prebuilt glue meant to be reused across many different consumers unchanged.
+Reach for this component and `wac plug` when you specifically want a fixed,
+reusable capability composed into multiple different components without
+recompiling; reach for `--polyfill fetch-classes` when you just want one
+component's own `fetch()`.
+
 Constructing a `wasi:http/client` request needs `wit.Future`/`wit.Stream`
 type indices (for the request's trailers future and body stream). Those
 indices are auto-assigned per-component, based on every other stream/future
 type that specific component's WIT world happens to use — not something
-generic glue code injected into an arbitrary caller's world could reliably
-reference (the same shape of value could get a different index, or even a
-different constant name, in a different world).
+*prebuilt, reusable* glue meant to be composed into many different consumers
+without recompiling could reliably reference (the same shape of value gets
+the same constant *name* in any world - `wit.Future`'s naming is derived
+from the type's structure, not its position - but a different numeric index
+behind that name in each one, which is exactly what a fixed, non-recompiled
+component can't adapt to).
 
 Isolating this in its own fixed, minimal world (only ever importing
 `wasi:http/client`) makes those indices fixed and known. The exported

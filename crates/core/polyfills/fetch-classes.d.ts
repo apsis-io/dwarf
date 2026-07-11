@@ -1,6 +1,10 @@
 // Types for the `fetch-classes` polyfill (`--polyfill fetch-classes`) -
-// Headers/Request/Response/DOMException from whatwg-fetch, trimmed (no
-// fetch() itself - pair with examples/fetch-provider's fetch.js or your own).
+// Headers/Request/Response/DOMException from whatwg-fetch, trimmed, plus a
+// real global `fetch()` (see crates/core/src/polyfills.rs's generate_fetch)
+// wired directly to wasi:http/client@0.3.x when the world imports it (throws
+// a clear error otherwise) - declared here rather than builtins.d.ts since
+// its signature references Request/Response, which only exist when this
+// polyfill is also requested.
 //
 // Body.blob()/formData() throw at runtime (no Blob/FormData in dwarf) -
 // omitted here so using them is a type error rather than a silent runtime
@@ -8,10 +12,10 @@
 // regardless of whether the body originated as a string, JSON, binary data,
 // or was omitted entirely.
 
-// Minimal stand-in - dwarf has no real AbortController/AbortSignal wiring
-// (nothing observes `signal`), typed loosely so a `RequestInit.signal` isn't
-// a hard type error if you have `lib: ["dom"]` and pass a real one anyway.
-type AbortSignal = { readonly aborted: boolean };
+// AbortController/AbortSignal are a real, always-on global (see
+// builtins.d.ts) - nothing in dwarf's own fetch() implementation observes
+// `signal` yet, but a caller polling `signal.aborted` in its own loop works
+// today.
 
 type HeadersInit = Headers | Record<string, string> | Iterable<[string, string]>;
 
@@ -80,3 +84,8 @@ declare class Response {
 declare class DOMException extends Error {
   constructor(message?: string, name?: string);
 }
+
+// Requires importing wasi:http/client@0.3.x - throws a clear error
+// otherwise. Single-read response body (bodies larger than 64KiB are
+// truncated - see generate_fetch's doc comment for why).
+declare function fetch(input: string | Request, init?: RequestInit): Promise<Response>;

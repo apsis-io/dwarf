@@ -75,7 +75,7 @@ DWARF_POLYFILLS_DIR=/path/to/dwarf/crates/core/polyfills \
 |---|---|
 | `buffer` | `Buffer` (feross/buffer) |
 | `url` | `URL`, `URLSearchParams` (whatwg-url, IDNA-compliant) |
-| `fetch-classes` | `Headers`, `Request`, `Response`, `DOMException` (no `fetch()` itself) |
+| `fetch-classes` | `Headers`, `Request`, `Response`, `DOMException`, plus a real `fetch()` wired to `wasi:http/client@0.3.x` (always-on, throws a clear error if that import is missing) |
 | `path` | `path` module (join/dirname/basename/etc., matches Node's shape) |
 | `readable-stream` | `ReadableStream`, `wit.readableStreamFromStream(readable)` |
 | `webcrypto` | `crypto.subtle` (digest, HMAC, ECDSA/ECDH P-256/P-384, HKDF, AES-GCM — @noble/hashes+curves+ciphers). A subset, not full spec parity — see webcrypto.d.ts. `crypto.getRandomValues` is always-on (below), independent of this flag |
@@ -93,11 +93,19 @@ attributions: README's [Polyfills](../README.md#polyfills) section and
 | `console.print/println/eprint/eprintln` | Same interfaces, always async (Promise-returning) regardless of version |
 | `process.env/argv/cwd()/exit()` | `wasi:cli/environment`/`exit` (same shape in 0.2 and 0.3) |
 | `crypto.getRandomValues` | `wasi:random/random#get-random-bytes` |
+| `setTimeout`/`setInterval` | `wasi:clocks/monotonic-clock@0.3.x#wait-for` (0.2 has no non-blocking wait, so only 0.3 works) |
+| `clearTimeout`/`clearInterval` | Always safe no-ops, even without the clock import |
+| `AbortController`/`AbortSignal` | Hand-written, no WIT dependency — real `abort()`/`aborted`/`reason`/listeners |
+| `fetch()` | `wasi:http/client@0.3.x` — requires `--polyfill fetch-classes` too (for `Request`/`Response`/`Headers`) |
 
-`console`/`process` throw a clear error naming the missing import if the world
-doesn't provide either WASI version — see README's [Console](../README.md#console)
-and [Process](../README.md#process) sections for the full fallback rules and the
-async-logging completion-ordering caveat.
+`console`/`process`/`crypto.getRandomValues`/`setTimeout`/`setInterval`/`fetch()`
+throw a clear error naming the missing import if the world doesn't provide it —
+see README's [Console](../README.md#console) and [Process](../README.md#process)
+sections for the full fallback rules and the async-logging completion-ordering
+caveat. `setTimeout`/`setInterval` have an unavoidable caveat under
+component-model-async: an unawaited timer's callback is cancelled if the
+async export that (transitively) created it settles first — reliable only
+when awaited or called from a still-running export.
 
 ## WIT → JS type mapping (condensed)
 

@@ -210,6 +210,8 @@ pub(crate) fn generate_wasi_polyfills(resolve: &Resolve, world_id: WorldId) -> S
     generate_console(resolve, world_id, &mut lines);
     generate_process(resolve, world_id, &mut lines);
     generate_crypto_get_random_values(resolve, world_id, &mut lines);
+    generate_timers(resolve, world_id, &mut lines);
+    generate_fetch(resolve, world_id, &mut lines);
     lines.join("\n") + "\n"
 }
 
@@ -315,6 +317,66 @@ fn generate_builtins(lines: &mut Vec<String>) {
     lines.push("    }".into());
     lines.push("    return out;".into());
     lines.push("  }".into());
+    lines.push("};".into());
+
+    generate_abort_controller(lines);
+}
+
+/// `AbortController`/`AbortSignal`, no WIT/host dependency (foundational,
+/// like `TextEncoder`/`TextDecoder` above) - real semantics (`abort()` flips
+/// `aborted`, sets `reason`, fires `onabort`/`'abort'` listeners), not the
+/// no-op stand-in `fetch-classes.d.ts` used to document (`{ readonly aborted:
+/// boolean }`, "nothing observes signal"). `fetch-classes.js` already
+/// optionally uses a global `AbortController` if present
+/// (`"AbortController" in g`); this is what makes that branch real. Uses a
+/// plain `Error` (named `"AbortError"`) as the default abort reason when
+/// `DOMException` isn't also available (the `fetch-classes` polyfill's, not
+/// a hard dependency of this) - matches the real default reason's `.name`
+/// even without the real class. No `AbortSignal.timeout()` static: that
+/// needs `setTimeout`, and this stays dependency-free on purpose.
+fn generate_abort_controller(lines: &mut Vec<String>) {
+    lines.push("function __dwarfAbortDefaultReason() {".into());
+    lines.push("  if (typeof DOMException !== 'undefined') return new DOMException('signal is aborted without reason', 'AbortError');".into());
+    lines.push("  const e = new Error('signal is aborted without reason');".into());
+    lines.push("  e.name = 'AbortError';".into());
+    lines.push("  return e;".into());
+    lines.push("}".into());
+
+    lines.push("globalThis.AbortSignal = class AbortSignal {".into());
+    lines.push("  constructor() {".into());
+    lines.push("    this._aborted = false;".into());
+    lines.push("    this._reason = undefined;".into());
+    lines.push("    this._listeners = new Set();".into());
+    lines.push("    this.onabort = null;".into());
+    lines.push("  }".into());
+    lines.push("  get aborted() { return this._aborted; }".into());
+    lines.push("  get reason() { return this._reason; }".into());
+    lines.push("  throwIfAborted() { if (this._aborted) throw this._reason; }".into());
+    lines.push("  addEventListener(type, listener) { if (type === 'abort') this._listeners.add(listener); }".into());
+    lines.push("  removeEventListener(type, listener) { if (type === 'abort') this._listeners.delete(listener); }".into());
+    lines.push("  _signalAbort(reason) {".into());
+    lines.push("    if (this._aborted) return;".into());
+    lines.push("    this._aborted = true;".into());
+    lines.push(
+        "    this._reason = reason === undefined ? __dwarfAbortDefaultReason() : reason;".into(),
+    );
+    lines.push("    const event = { type: 'abort', target: this };".into());
+    lines.push("    if (typeof this.onabort === 'function') this.onabort(event);".into());
+    lines.push("    for (const listener of this._listeners) listener(event);".into());
+    lines.push("  }".into());
+    lines.push("  static abort(reason) {".into());
+    lines.push("    const signal = new AbortSignal();".into());
+    lines.push(
+        "    signal._signalAbort(reason === undefined ? __dwarfAbortDefaultReason() : reason);"
+            .into(),
+    );
+    lines.push("    return signal;".into());
+    lines.push("  }".into());
+    lines.push("};".into());
+
+    lines.push("globalThis.AbortController = class AbortController {".into());
+    lines.push("  constructor() { this.signal = new AbortSignal(); }".into());
+    lines.push("  abort(reason) { this.signal._signalAbort(reason); }".into());
     lines.push("};".into());
 }
 
@@ -620,4 +682,275 @@ fn generate_crypto_get_random_values(
     } else {
         lines.push("globalThis.crypto.getRandomValues = function() { throw new Error(\"crypto.getRandomValues requires importing wasi:random/random (e.g. add `import wasi:random/random;` to your WIT world)\"); };".into());
     }
+}
+
+/// Wires `setTimeout`/`setInterval` to `wasi:clocks/monotonic-clock@0.3.x`'s
+/// `wait-for` (a genuine `async func`, directly awaitable with no
+/// stream/future ceremony - unlike `write-via-stream`, `wait-for` carries no
+/// stream/future-typed payload of its own). WASI 0.2's `monotonic-clock` has
+/// no non-blocking wait primitive at all (only `subscribe-duration` +
+/// `wasi:io/poll`'s `pollable`, which *blocks* the whole component - the
+/// opposite of what `setTimeout` is for), so only 0.3 is supported; matched
+/// via the `wait-for` probe (absent from 0.2, which only has
+/// `subscribe-duration`/`subscribe-instant`).
+///
+/// `clearTimeout`/`clearInterval` are always defined and never throw
+/// (clearing is inherently idempotent/harmless, even in a world where
+/// `setTimeout` itself would throw) - only creating a new timer needs the
+/// import.
+///
+/// IMPORTANT CAVEAT, unavoidable under component-model-async (the same class
+/// of limitation already documented for `console`'s fire-and-forget writes,
+/// see `__dwarfDrainPendingWrites` above): once the async export that (transitively)
+/// called `setTimeout`/`setInterval` settles, any still-pending timer callback
+/// that wasn't part of the explicitly-awaited chain is cancelled along with
+/// the rest of that task - there is no way for dwarf to keep a timer alive
+/// past its originating export call the way a real JS host's event loop
+/// would. Reliable only when awaited (e.g. a `sleep(ms)` helper built on
+/// this) or when called from a still-running, long-lived export.
+fn generate_timers(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>) {
+    let has_wait_for = has_wasi_function(
+        resolve,
+        world_id,
+        "wasi",
+        "clocks",
+        "monotonic-clock",
+        "wait-for",
+    );
+
+    if has_wait_for {
+        lines.push(r#"import __wasiMonotonicClock from "wasi:clocks/monotonic-clock";"#.into());
+    }
+
+    lines.push("(function() {".into());
+    lines.push("  let nextHandle = 1;".into());
+    lines.push("  const cancelled = new Set();".into());
+    lines.push("  globalThis.clearTimeout = function(handle) { cancelled.add(handle); };".into());
+    lines.push("  globalThis.clearInterval = globalThis.clearTimeout;".into());
+
+    if has_wait_for {
+        lines.push("  function checkActiveTask(name) {".into());
+        lines.push(
+            "    if (!__cqjs.hasActiveTask()) { throw new Error(name + \" requires an active async task - it can't be called from a plain sync export, or from top-level module code running during dwarf's build-time init (e.g. a library's own import-time side effect). Only call this from within an `async func` export.\"); }"
+                .into(),
+        );
+        lines.push("  }".into());
+
+        lines.push("  globalThis.setTimeout = function(fn, ms, ...args) {".into());
+        lines.push("    checkActiveTask('setTimeout');".into());
+        lines.push("    const handle = nextHandle++;".into());
+        lines.push("    const nanos = BigInt(Math.max(0, Math.trunc(ms || 0))) * 1000000n;".into());
+        lines.push("    __wasiMonotonicClock.waitFor(nanos).then(function() {".into());
+        lines.push("      if (cancelled.has(handle)) { cancelled.delete(handle); return; }".into());
+        lines.push("      fn(...args);".into());
+        lines.push("    });".into());
+        lines.push("    return handle;".into());
+        lines.push("  };".into());
+
+        lines.push("  globalThis.setInterval = function(fn, ms, ...args) {".into());
+        lines.push("    checkActiveTask('setInterval');".into());
+        lines.push("    const handle = nextHandle++;".into());
+        lines.push("    const nanos = BigInt(Math.max(0, Math.trunc(ms || 0))) * 1000000n;".into());
+        lines.push("    (function tick() {".into());
+        lines.push("      if (cancelled.has(handle)) { cancelled.delete(handle); return; }".into());
+        lines.push("      __wasiMonotonicClock.waitFor(nanos).then(function() {".into());
+        lines.push(
+            "        if (cancelled.has(handle)) { cancelled.delete(handle); return; }".into(),
+        );
+        lines.push("        fn(...args);".into());
+        lines.push("        tick();".into());
+        lines.push("      });".into());
+        lines.push("    })();".into());
+        lines.push("    return handle;".into());
+        lines.push("  };".into());
+    } else {
+        let msg = "requires importing wasi:clocks/monotonic-clock@0.3.x (e.g. add `import wasi:clocks/monotonic-clock@0.3.x;` to your WIT world) - wasi:clocks 0.2 has no non-blocking wait primitive, so this can't be backed by it";
+        lines.push(format!(
+            "  globalThis.setTimeout = function() {{ throw new Error(\"setTimeout {msg}\"); }};"
+        ));
+        lines.push(format!(
+            "  globalThis.setInterval = function() {{ throw new Error(\"setInterval {msg}\"); }};"
+        ));
+    }
+
+    lines.push("})();".into());
+}
+
+/// Wires a global `fetch(input, init)` directly to `wasi:http/client@0.3.x`,
+/// generated only when the world imports it (matched via the `send`
+/// function - `wasi:http` 0.2 has no `client` interface at all, so no
+/// version ambiguity to worry about, unlike `console`).
+///
+/// This is the one case among dwarf's WASI-backed polyfills that looks like
+/// it should be impossible: `examples/fetch-provider`'s own doc comment
+/// explains that `wit.Stream`/`wit.Future` type indices are "auto-assigned
+/// per-component based on every other stream/future type that component's
+/// own WIT world happens to use - not something glue code injected into an
+/// arbitrary caller's world could reliably reference," which is why
+/// `fetch-provider` is a separate, fixed-world component composed in via
+/// `wac plug` rather than a polyfill. That constraint is about a *prebuilt,
+/// reusable* component meant to be composed into many different consumers
+/// without rebuilding - it doesn't apply to dwarf's own codegen, which
+/// generates fresh JS for each consuming component's own specific WIT world
+/// at build time. And critically, `wit.Future`/`wit.Stream` CONSTANT NAMES
+/// (`U8`, `RESULT_OPTION_OTHER_ERROR_CODE`, `RESULT_VOID_ERROR_CODE`) are
+/// derived purely structurally from the payload type's shape (see
+/// `codegen.rs`'s `type_const_name`) - not from the type's position or
+/// anything else in that world - so any world that imports
+/// `wasi:http/client` (which necessarily pulls in `wasi:http/types`' fixed
+/// future/stream shapes for trailers/bodies) computes the exact same
+/// constant names on its own generated `wit.Future`/`wit.Stream` object,
+/// even though the numeric indices those names resolve to differ per
+/// component. Hardcoding the JS source text below is therefore safe; only
+/// hardcoding a raw numeric index would not be (see `unique_const_names` for
+/// the one narrow caveat: an unrelated anonymous future/stream elsewhere in
+/// the same world that happens to share an identical nested option/result
+/// shape would collide on the bare name - vanishingly unlikely for
+/// wasi:http's specific shapes, and no worse than the same risk any other
+/// WASI-backed polyfill already accepts).
+///
+/// The actual request/response construction below is a direct port of
+/// `examples/fetch-provider/main.js` (verified there against real HTTP
+/// servers) merged with its `fetch.js` DX layer, so `fetch()` here accepts a
+/// URL string or a `Request` and returns a real `Response` directly, with no
+/// intermediate flattened wire format (unlike `fetch-provider`, which needs
+/// one only because it's a separate, plain-types-only-boundary component).
+///
+/// Requires the `fetch-classes` polyfill (`--polyfill fetch-classes`) for
+/// `Request`/`Response`/`Headers` - referenced only inside the function
+/// body (resolved at call time, not definition time), so generation order
+/// relative to that static polyfill doesn't matter, but calling `fetch()`
+/// without also requesting `fetch-classes` throws a plain `ReferenceError`.
+/// Same single-read response body limitation as `fetch-provider` (a real
+/// drain loop needs a proven end-of-stream signal for `wasi:io`'s
+/// `stream.read`, not yet verified) - large bodies are truncated.
+fn generate_fetch(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>) {
+    let has_client = has_wasi_function(resolve, world_id, "wasi", "http", "client", "send");
+
+    if !has_client {
+        lines.push("globalThis.fetch = function() { throw new Error(\"fetch() requires importing wasi:http/client@0.3.x (e.g. add `import wasi:http/client@0.3.x;` to your WIT world) and the fetch-classes polyfill (--polyfill fetch-classes) for Request/Response/Headers\"); };".into());
+        return;
+    }
+
+    lines.push(
+        r#"import { Fields as __wasiHttpFields, Request as __WasiHttpRequest, Response as __WasiHttpResponse } from "wasi:http/types";"#
+            .into(),
+    );
+    lines.push(r#"import { send as __wasiHttpSend } from "wasi:http/client";"#.into());
+
+    lines.push("globalThis.fetch = async function fetch(input, init = {}) {".into());
+    lines.push(
+        "  if (!__cqjs.hasActiveTask()) { throw new Error(\"fetch() (via wasi:http/client) requires an active async task - it can't be called from a plain sync export, or from top-level module code running during dwarf's build-time init. Only call this from within an `async func` export.\"); }"
+            .into(),
+    );
+    lines.push(
+        "  const request = input instanceof Request ? input : new Request(input, init);".into(),
+    );
+    lines.push(
+        "  const m = /^(https?):\\/\\/([^/:?#]+)(?::(\\d+))?([^?#]*)(\\?[^#]*)?/.exec(request.url);"
+            .into(),
+    );
+    lines.push("  if (!m) throw new TypeError(\"fetch: invalid URL: \" + request.url);".into());
+    lines.push("  const [, scheme, host, port, path, query] = m;".into());
+    lines.push("  const authority = port ? `${host}:${port}` : host;".into());
+    lines.push("  const pathWithQuery = (path || '/') + (query || '');".into());
+
+    lines.push("  const headerEntries = [];".into());
+    lines.push("  for (const [name, value] of request.headers.entries()) {".into());
+    lines.push(
+        "    headerEntries.push([name, Array.from(new TextEncoder().encode(value))]);".into(),
+    );
+    lines.push("  }".into());
+    lines.push("  const headers = __wasiHttpFields.fromList(headerEntries);".into());
+
+    lines.push("  const buf = await request.arrayBuffer();".into());
+    lines.push("  const hasBody = buf.byteLength > 0;".into());
+    lines.push("  let bodyStream = null;".into());
+    lines.push("  let bodyWritable = null;".into());
+    lines.push("  if (hasBody) {".into());
+    lines.push("    const pair = wit.Stream(wit.Stream.U8);".into());
+    lines.push("    bodyStream = pair.readable;".into());
+    lines.push("    bodyWritable = pair.writable;".into());
+    lines.push("  }".into());
+
+    lines.push(
+        "  const trailersFuture = wit.Future(wit.Future.RESULT_OPTION_OTHER_ERROR_CODE);".into(),
+    );
+    lines.push("  trailersFuture.writable.write({ tag: 'ok', val: null });".into());
+
+    lines.push(
+        "  const __fetchMethods = new Set(['get', 'head', 'post', 'put', 'delete', 'connect', 'options', 'trace', 'patch']);"
+            .into(),
+    );
+    lines.push("  const methodLower = (request.method || 'GET').toLowerCase();".into());
+    lines.push(
+        "  const methodTag = __fetchMethods.has(methodLower) ? { tag: methodLower } : { tag: 'other', val: request.method };"
+            .into(),
+    );
+
+    lines.push(
+        "  const [wireRequest, transmitFuture] = __WasiHttpRequest.new(headers, bodyStream, trailersFuture.readable, null);"
+            .into(),
+    );
+    lines.push("  wireRequest.setMethod(methodTag);".into());
+    lines.push("  wireRequest.setScheme({ tag: scheme === 'https' ? 'HTTPS' : 'HTTP' });".into());
+    lines.push("  wireRequest.setAuthority(authority);".into());
+    lines.push("  wireRequest.setPathWithQuery(pathWithQuery);".into());
+
+    lines.push("  let response;".into());
+    lines.push("  try {".into());
+    lines.push("    // send() must start before the body is written - the writable end".into());
+    lines.push("    // has no reader until the request is actually in flight, so awaiting".into());
+    lines
+        .push("    // the write first would hang waiting for a reader that never shows up.".into());
+    lines.push("    const sendPromise = __wasiHttpSend(wireRequest);".into());
+    lines.push("    if (hasBody) {".into());
+    lines.push("      await bodyWritable.writeAll(Array.from(new Uint8Array(buf)));".into());
+    lines.push("      bodyWritable.drop();".into());
+    lines.push("    }".into());
+    lines.push("    response = await sendPromise;".into());
+    lines.push("  } catch (e) {".into());
+    lines.push(
+        "    const wrapped = new TypeError('fetch failed: ' + (e && e.message ? e.message : JSON.stringify(e)));"
+            .into(),
+    );
+    lines.push(
+        "    if (e && typeof e === 'object' && 'payload' in e) wrapped.payload = e.payload;".into(),
+    );
+    lines.push("    throw wrapped;".into());
+    lines.push("  }".into());
+
+    lines.push("  const status = response.getStatusCode();".into());
+    lines.push("  const responseHeaders = new Headers();".into());
+    lines.push("  for (const [name, value] of response.getHeaders().copyAll()) {".into());
+    lines.push(
+        "    responseHeaders.append(name, new TextDecoder().decode(Uint8Array.from(value)));"
+            .into(),
+    );
+    lines.push("  }".into());
+
+    lines.push("  const voidFuture = wit.Future(wit.Future.RESULT_VOID_ERROR_CODE);".into());
+    lines.push("  voidFuture.writable.write({ tag: 'ok', val: undefined });".into());
+    lines.push(
+        "  // A single read, not a drain loop: known limitation (see examples/fetch-provider),"
+            .into(),
+    );
+    lines.push(
+        "  // bodies larger than this are truncated - a real drain loop needs a proven".into(),
+    );
+    lines.push("  // end-of-stream signal for wasi:io's stream.read, not yet verified.".into());
+    lines.push(
+        "  const [respBodyStream] = __WasiHttpResponse.consumeBody(response, voidFuture.readable);"
+            .into(),
+    );
+    lines.push("  const bytes = await respBodyStream.read(65536);".into());
+    lines.push("  respBodyStream.drop();".into());
+    lines.push("  await transmitFuture.read();".into());
+    lines.push("  transmitFuture.drop();".into());
+
+    lines.push(
+        "  return new Response(Uint8Array.from(bytes), { status, headers: responseHeaders });"
+            .into(),
+    );
+    lines.push("};".into());
 }

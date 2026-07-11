@@ -20,3 +20,37 @@ declare class TextDecoder {
 declare var crypto: {
   getRandomValues<T extends ArrayBufferView>(typedArray: T): T;
 };
+
+interface AbortEvent {
+  readonly type: "abort";
+  readonly target: AbortSignal;
+}
+
+declare class AbortSignal {
+  readonly aborted: boolean;
+  readonly reason: unknown;
+  onabort: ((event: AbortEvent) => void) | null;
+  throwIfAborted(): void;
+  addEventListener(type: "abort", listener: (event: AbortEvent) => void): void;
+  removeEventListener(type: "abort", listener: (event: AbortEvent) => void): void;
+  // No `AbortSignal.timeout()` static - it would need `setTimeout`, and this
+  // stays dependency-free on purpose.
+  static abort(reason?: unknown): AbortSignal;
+}
+
+declare class AbortController {
+  readonly signal: AbortSignal;
+  abort(reason?: unknown): void;
+}
+
+// setTimeout/setInterval require importing wasi:clocks/monotonic-clock@0.3.x
+// (throw a clear error otherwise - wasi:clocks 0.2 has no non-blocking wait
+// primitive). clearTimeout/clearInterval are always safe no-ops, even
+// without that import. IMPORTANT: an unawaited timer's callback is cancelled
+// if the async export that (transitively) created it settles first - a real
+// component-model-async constraint, not a dwarf bug. See generate_timers in
+// crates/core/src/polyfills.rs for the full explanation.
+declare function setTimeout(fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]): number;
+declare function clearTimeout(handle: number | undefined): void;
+declare function setInterval(fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]): number;
+declare function clearInterval(handle: number | undefined): void;
