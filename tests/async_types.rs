@@ -266,6 +266,54 @@ async fn test_async_reject_with_error_object() {
 }
 
 #[tokio::test]
+async fn test_export_completes_even_if_drain_promise_rejects() {
+    // finish_export_after_drain's drainPromise.then(finish_cb) chain used to
+    // register only an onFulfilled handler - if that promise ever rejected
+    // (Promise.allSettled itself never does, but a future change, or here, a
+    // deliberately hostile override, could produce one), task_return was
+    // never called and the whole export hung forever with no panic, no
+    // trap, nothing. Overriding __dwarfDrainPendingWrites to reject exercises
+    // that path directly without depending on any specific polyfill's
+    // internals actually rejecting in practice.
+    let mut instance = TestCase::new()
+        .wit(
+            r#"
+            package test:drain-reject;
+            world drain-reject {
+                export run: async func() -> string;
+            }
+            "#,
+        )
+        .script(
+            r#"
+            globalThis.__dwarfDrainPendingWrites = function() {
+                return Promise.reject(new Error("drain boom"));
+            };
+
+            export async function run() {
+                return "export result survives a rejecting drain";
+            }
+            "#,
+        )
+        .build_async()
+        .await
+        .unwrap();
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        instance.call1_async("run", &[]),
+    )
+    .await
+    .expect("export hung instead of completing when the drain promise rejected")
+    .unwrap();
+
+    assert_eq!(
+        result,
+        Val::String("export result survives a rejecting drain".into())
+    );
+}
+
+#[tokio::test]
 async fn test_async_echo_result() {
     let mut instance = TestCase::new()
         .wit(

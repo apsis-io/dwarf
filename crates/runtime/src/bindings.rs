@@ -341,8 +341,20 @@ fn finish_export_after_drain<'js>(
         }),
     )?;
 
-    let mut call_args = function::Args::new(ctx.clone(), 1);
+    // Registered as BOTH the resolve and reject handler: the drain is a
+    // best-effort flush of already-fire-and-forgotten writes, and the
+    // export's own result was already correctly lowered into `call` before
+    // this ran - so even if draining itself somehow rejects (it shouldn't in
+    // practice, since __dwarfDrainPendingWrites is built on
+    // Promise.allSettled, which never rejects - but a future change to that
+    // polyfill, or a user-overridden version of it, could), `task_return`
+    // must still be called or the whole task hangs forever with no panic,
+    // no trap, nothing - a real, independently-confirmed gap (only an
+    // onFulfilled handler was ever registered here, unlike build_async_exports's
+    // own then_cb/catch_cb pair on the export's result itself).
+    let mut call_args = function::Args::new(ctx.clone(), 2);
     call_args.this(drain_promise.clone())?;
+    call_args.push_arg(finish_cb.clone())?;
     call_args.push_arg(finish_cb)?;
     then_fn.call_arg::<Value>(call_args)?;
     Ok(())
