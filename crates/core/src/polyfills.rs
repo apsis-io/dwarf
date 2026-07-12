@@ -248,6 +248,7 @@ pub(crate) fn generate_wasi_polyfills(resolve: &Resolve, world_id: WorldId) -> S
     generate_crypto_get_random_values(resolve, world_id, &mut lines);
     generate_timers(resolve, world_id, &mut lines);
     generate_fetch(resolve, world_id, &mut lines);
+    generate_websocket(resolve, world_id, &mut lines);
     lines.join("\n") + "\n"
 }
 
@@ -989,4 +990,53 @@ fn generate_fetch(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>)
             .into(),
     );
     lines.push("};".into());
+}
+
+/// Wires a global `WebSocketServer` class to `wasi:sockets/types@0.3.0`'s
+/// `tcp-socket` resource, generated only when the world imports it (matched
+/// via the resource's static `create` function, which `wit_parser` names
+/// `[static]tcp-socket.create` - confirmed against the real calling
+/// convention in `tests/wit/sockprobe/probe.js`: `TcpSocket.create("ipv4")`
+/// throws/returns directly per dwarf's usual `result<T, error-code>`
+/// convention, `await sock.connect(...)`/`sock.listen()` etc. follow the
+/// same shape).
+///
+/// The bulk of the implementation - the RFC 6455 frame parser/builder, the
+/// HTTP upgrade handshake, and the `WebSocketServer`/connection wrapper
+/// classes - lives in `websocket-server.js` (a hand-adapted port of
+/// websockets/ws's receiver.js, see NOTICES) since none of it needs to
+/// change based on the WIT world's shape; only the decision of whether to
+/// wire it up at all, and the `wasi:sockets/types` import line itself, are
+/// generated here, matching `generate_fetch`'s split between Rust-generated
+/// wiring and hand-written protocol logic.
+///
+/// Requires the `webcrypto` polyfill (`--polyfill webcrypto`) for computing
+/// the `Sec-WebSocket-Accept` handshake header via `crypto.subtle.digest
+/// ("SHA-1", ...)` - referenced only inside an async function body, so
+/// generation order doesn't matter, but `new WebSocketServer().listen(...)`
+/// without also requesting `webcrypto` throws a clear error naming it.
+///
+/// Scope cuts, matching this codebase's existing "documented limitation"
+/// style rather than a half-finished implementation: IPv4 only, no
+/// permessage-deflate (never negotiated, so real clients simply don't use
+/// it), text/binary messages delivered as a plain `string`/`Uint8Array` (no
+/// Blob/ArrayBuffer `binaryType` switch - there's no `Blob` in dwarf), no
+/// backpressure signaling on `send()` beyond a per-connection write queue.
+fn generate_websocket(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>) {
+    let has_tcp = has_wasi_function(
+        resolve,
+        world_id,
+        "wasi",
+        "sockets",
+        "types",
+        "[static]tcp-socket.create",
+    );
+
+    if !has_tcp {
+        lines.push("globalThis.WebSocketServer = class WebSocketServer { constructor() { throw new Error(\"WebSocketServer requires importing wasi:sockets/types@0.3.0 (e.g. add `import wasi:sockets/types@0.3.0;` to your WIT world)\"); } };".into());
+        return;
+    }
+
+    lines.push(r#"import { TcpSocket } from "wasi:sockets/types@0.3.0";"#.into());
+    lines.push(include_str!("../polyfills/websocket-server.js").into());
 }

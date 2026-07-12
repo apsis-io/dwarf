@@ -1,0 +1,6 @@
+package test:websocket;
+
+world websocket-test {
+  import wasi:sockets/types@0.3.0;
+  export run: async func(port: u16);
+}

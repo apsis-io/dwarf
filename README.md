@@ -421,6 +421,59 @@ dwarf to keep a timer alive past its originating export call the way a real
 JS host's event loop would. Reliable only when awaited (as in `sleep`
 above) or when called from a still-running, long-lived export.
 
+## WebSockets
+
+A global `WebSocketServer` class is wired to `wasi:sockets/types@0.3.0`'s
+`tcp-socket` resource when the world imports it — throws a clear error
+otherwise. It also needs `--polyfill webcrypto` for computing the
+`Sec-WebSocket-Accept` handshake header (`crypto.subtle.digest("SHA-1",
+...)`); calling `listen()` without it throws a clear error naming the flag.
+
+```wit
+world ws-server {
+    import wasi:sockets/types@0.3.0;
+    export run: async func(port: u16);
+}
+```
+
+```js
+export async function run(port) {
+    const server = new WebSocketServer();
+    server.on("connection", (conn) => {
+        conn.on("message", (data) => {
+            // `data` is a string for text frames, a Uint8Array for binary.
+            conn.send(typeof data === "string" ? "echo:" + data : data);
+        });
+        conn.on("close", (code, reason) => {});
+    });
+    await server.listen(port, "127.0.0.1"); // runs forever, accepting connections
+}
+```
+
+`server.listen(port, host)` binds, starts listening, and accept-loops
+forever — it's meant to be `await`ed from a long-lived entrypoint (e.g. a
+`wasi:cli/run` `run()` kept alive as a background task via the host's own
+persistent/also-run mechanism alongside normal request handling, the same
+class of setup trail's `--persistent` flag provides). Each accepted
+connection is handled concurrently with accepting further connections
+(ordinary single-threaded JS promise concurrency, not real parallelism).
+After binding, `server.port` holds the actual bound port (useful when
+`port` is `0`, requesting an OS-assigned ephemeral port). `server.close()`
+stops the accept loop.
+
+A connection object passed to the `'connection'` handler has `.send(data)`
+(string or `Uint8Array`), `.ping(data)`, `.close(code, reason)`, `.path`
+and `.headers` (from the upgrade request), and `.on(event, cb)` for
+`'message'`, `'ping'`, `'pong'`, `'close'`, and `'error'`.
+
+The frame parser (validation rules, fragmentation/control-frame handling)
+is adapted from [websockets/ws](https://github.com/websockets/ws)'s
+`receiver.js` (see NOTICES), cross-tested against a real, independent
+client. Scope cuts: IPv4 only, no permessage-deflate (never negotiated, so
+compliant clients simply don't use it), no `Blob`/`ArrayBuffer`
+`binaryType` switch (binary messages are always `Uint8Array` — there's no
+`Blob` in dwarf).
+
 ## Polyfills
 
 `TextEncoder`/`TextDecoder` (UTF-8 only) are always available — dwarf's

@@ -103,15 +103,19 @@ attributions: README's [Polyfills](../README.md#polyfills) section and
 | `clearTimeout`/`clearInterval` | Always safe no-ops, even without the clock import |
 | `AbortController`/`AbortSignal` | Hand-written, no WIT dependency — real `abort()`/`aborted`/`reason`/listeners |
 | `fetch()` | `wasi:http/client@0.3.x` — requires `--polyfill fetch-classes` too (for `Request`/`Response`/`Headers`) |
+| `WebSocketServer` | `wasi:sockets/types@0.3.0`'s `tcp-socket` — requires `--polyfill webcrypto` too (for the `Sec-WebSocket-Accept` handshake header) |
 
-`console`/`process`/`crypto.getRandomValues`/`setTimeout`/`setInterval`/`fetch()`
+`console`/`process`/`crypto.getRandomValues`/`setTimeout`/`setInterval`/`fetch()`/`WebSocketServer`
 throw a clear error naming the missing import if the world doesn't provide it —
 see README's [Console](../README.md#console) and [Process](../README.md#process)
 sections for the full fallback rules and the async-logging completion-ordering
 caveat. `setTimeout`/`setInterval` have an unavoidable caveat under
 component-model-async: an unawaited timer's callback is cancelled if the
 async export that (transitively) created it settles first — reliable only
-when awaited or called from a still-running export.
+when awaited or called from a still-running export. `WebSocketServer.listen()`
+has the same "must be awaited from a still-running export" shape, since it
+accept-loops forever — see README's [WebSockets](../README.md#websockets)
+section for the full API and scope cuts (IPv4 only, no permessage-deflate).
 
 ## WIT → JS type mapping (condensed)
 

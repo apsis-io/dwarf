@@ -69,6 +69,9 @@ assert_cmd = "2.0"
 predicates = "3.1"
 quickcheck = "1"
 tempfile = "3.13"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
+tokio-tungstenite = "0.30"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 wit-parser.workspace = true

@@ -338,7 +338,12 @@ impl AsyncComponentInstance {
         wasi_builder
             .stdin(MemoryInputPipe::new(stdin.unwrap_or_default()))
             .stdout(stdout.clone())
-            .stderr(stderr.clone());
+            .stderr(stderr.clone())
+            // Needed for tests that bind/listen/connect real sockets (e.g.
+            // websocket.rs, sockprobe in async_resource.rs) - without this,
+            // wasmtime-wasi's wasi:sockets host implementation denies every
+            // socket operation by default.
+            .inherit_network();
         let wasi = wasi_builder.build();
         let table = ResourceTable::new();
         let mut store = Store::new(engine, WasiCtxState { wasi, table });
