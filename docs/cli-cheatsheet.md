@@ -79,6 +79,12 @@ DWARF_POLYFILLS_DIR=/path/to/dwarf/crates/core/polyfills \
 | `path` | `path` module (join/dirname/basename/etc., matches Node's shape) |
 | `readable-stream` | `ReadableStream`, `wit.readableStreamFromStream(readable)` |
 | `webcrypto` | `crypto.subtle` (digest, HMAC, ECDSA/ECDH P-256/P-384, HKDF, AES-GCM — @noble/hashes+curves+ciphers). A subset, not full spec parity — see webcrypto.d.ts. `crypto.getRandomValues` is always-on (below), independent of this flag |
+| `ufo` | `ufo.*` namespace — functional URL utilities (joinURL, withQuery, parseURL, etc.), complements `url`'s class-based API |
+| `scule` | `scule.*` namespace — string case conversion (camelCase, kebabCase, snakeCase, pascalCase, etc.) |
+| `klona` | `klona(value)` — fast deep clone. dwarf has no `structuredClone` at all |
+| `ohash` | `ohash.*` namespace — `hash()`/`serialize()`/`isEqual()`, non-cryptographic (see `webcrypto` for real hashing) |
+| `knitwork` | `knitwork.*` namespace — JS/TS code-string generation (genImport, genObjectFromRaw, etc.), no parsing |
+| `unstorage` | `unstorage.*` namespace — universal KV storage API (`createStorage()`), zero-config in-memory only — no fs/redis/kv drivers bundled |
 
 Unknown name → build error listing valid names. Full details, caveats, and
 attributions: README's [Polyfills](../README.md#polyfills) section and

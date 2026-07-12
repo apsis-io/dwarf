@@ -449,9 +449,20 @@ wanted" from:
 | `path` | `path` (`.join`, `.dirname`, `.basename`, etc. — matches Node's `path` module shape) | [unjs/pathe](https://github.com/unjs/pathe), fast and dependency-free |
 | `readable-stream` | `ReadableStream`, `wit.readableStreamFromStream(readable)` | Hand-written (not vendored), verified against real `ReadableStream` — minimal pull-based-controller subset (no BYOB readers, `tee()`, or `pipeTo`/`pipeThrough`), matching what libraries like h3 actually use for streaming response bodies. The bridge helper wraps a `wit.Stream()` readable end for handing a WASI-backed body to code expecting the standard interface — single-read only, same reason as `fetch-provider`'s documented limitation (see below) |
 | `webcrypto` | `crypto.subtle` (`digest`, HMAC, ECDSA/ECDH on P-256/P-384, HKDF, AES-GCM) | [@noble/hashes](https://github.com/paulmillr/noble-hashes) + [@noble/curves](https://github.com/paulmillr/noble-curves) + [@noble/ciphers](https://github.com/paulmillr/noble-ciphers), wrapped in a hand-written `crypto.subtle` covering a deliberate subset of the real Web Crypto API — no RSA, AES-CBC/CTR, PBKDF2, spki/pkcs8 DER (only `"raw"`/`"jwk"`), or Ed25519/X25519. `generateKey` needs `crypto.getRandomValues` (above), which needs `wasi:random/random` imported |
+| `ufo` | `ufo.*` — functional URL utilities (`joinURL`, `withQuery`, `parseURL`, `normalizeURL`, etc.) | [unjs/ufo](https://github.com/unjs/ufo). Complements `url`'s class-based `URL`/`URLSearchParams` with the more ergonomic functional helpers many h3/nitro-style codebases use |
+| `scule` | `scule.*` — string case conversion (`camelCase`, `kebabCase`, `snakeCase`, `pascalCase`, `trainCase`, `titleCase`, etc.) | [unjs/scule](https://github.com/unjs/scule) |
+| `klona` | `klona(value)` — deep clone | [lukeed/klona](https://github.com/lukeed/klona). dwarf's QuickJS-ng has no `structuredClone` at all (confirmed, not just "klona is faster") |
+| `ohash` | `ohash.*` — `hash()`/`serialize()`/`isEqual()` | [unjs/ohash](https://github.com/unjs/ohash), bundled with its pure-JS (non-Node) SHA-256-based digest. Not for security use — see `webcrypto` for cryptographic hashing |
+| `knitwork` | `knitwork.*` — JS/TS code-string generation (`genImport`, `genObjectFromRaw`, `genInterface`, etc., no parsing) | [unjs/knitwork](https://github.com/unjs/knitwork) |
+| `unstorage` | `unstorage.*` — universal key-value storage (`createStorage()`, `.getItem`/`.setItem`/`.getKeys`/etc.) | [unjs/unstorage](https://github.com/unjs/unstorage). Only the core plus its zero-config default (in-memory) driver are bundled — every other driver (fs, redis, cloudflare-kv, etc.) is Node/host-specific and not available. In-process memory only, not persisted across restarts |
 
 An unknown `--polyfill` name is a build error listing the available names.
 See [NOTICES](NOTICES) for full attribution of vendored polyfill code.
+Vendored (bundled-from-npm) static polyfills are bundled and registered with
+[`scripts/bundle-polyfill`](scripts/bundle-polyfill), a dev-only tool that
+generates the `install` line's global-exposure object from the bundle's own
+actual export list (via [knitwork](https://github.com/unjs/knitwork)) rather
+than a hand-transcribed one.
 
 Every polyfill also has a `.d.ts` (in `crates/core/polyfills/`), automatically
 included in `--emit-types`' output as `globals.d.ts` alongside the WIT-derived

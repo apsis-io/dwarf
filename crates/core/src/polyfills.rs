@@ -74,6 +74,42 @@ pub const POLYFILLS: &[Polyfill] = &[
         install: "globalThis.crypto = globalThis.crypto || {}; globalThis.crypto.subtle = subtle;",
         dts: include_str!("../polyfills/webcrypto.d.ts"),
     },
+    Polyfill {
+        name: "ufo",
+        source: include_str!("../polyfills/ufo.js"),
+        install: "globalThis.ufo = { $URL, cleanDoubleSlashes, createURL, decode, decodePath, decodeQueryKey, decodeQueryValue, encode, encodeHash, encodeHost, encodeParam, encodePath, encodeQueryItem, encodeQueryKey, encodeQueryValue, filterQuery, getQuery, hasLeadingSlash, hasProtocol, hasTrailingSlash, isEmptyURL, isEqual, isNonEmptyURL, isRelative, isSamePath, isScriptProtocol, joinRelativeURL, joinURL, normalizeURL, parseAuth, parseFilename, parseHost, parsePath, parseQuery, parseURL, resolveURL, stringifyParsedURL, stringifyQuery, withBase, withFragment, withHttp, withHttps, withLeadingSlash, withProtocol, withQuery, withTrailingSlash, withoutBase, withoutFragment, withoutHost, withoutLeadingSlash, withoutProtocol, withoutTrailingSlash };",
+        dts: include_str!("../polyfills/ufo.d.ts"),
+    },
+    Polyfill {
+        name: "scule",
+        source: include_str!("../polyfills/scule.js"),
+        install: "globalThis.scule = { camelCase, flatCase, isUppercase, kebabCase, lowerFirst, pascalCase, snakeCase, splitByCase, titleCase, trainCase, upperFirst };",
+        dts: include_str!("../polyfills/scule.d.ts"),
+    },
+    Polyfill {
+        name: "klona",
+        source: include_str!("../polyfills/klona.js"),
+        install: "globalThis.klona = klona;",
+        dts: include_str!("../polyfills/klona.d.ts"),
+    },
+    Polyfill {
+        name: "ohash",
+        source: include_str!("../polyfills/ohash.js"),
+        install: "globalThis.ohash = { hash, serialize, isEqual };",
+        dts: include_str!("../polyfills/ohash.d.ts"),
+    },
+    Polyfill {
+        name: "knitwork",
+        source: include_str!("../polyfills/knitwork.js"),
+        install: "globalThis.knitwork = { escapeString, genArrayFromRaw, genAugmentation, genDynamicImport, genDynamicTypeImport, genExport, genImport, genInlineTypeImport, genInterface, genObjectFromRaw, genObjectFromRawEntries, genObjectFromValues, genObjectKey, genSafeVariableName, genString, genTypeExport, genTypeImport, genTypeObject, wrapInDelimiters };",
+        dts: include_str!("../polyfills/knitwork.d.ts"),
+    },
+    Polyfill {
+        name: "unstorage",
+        source: include_str!("../polyfills/unstorage.js"),
+        install: "globalThis.unstorage = { builtinDrivers, createStorage, defineDriver, filterKeyByBase, filterKeyByDepth, joinKeys, normalizeBaseKey, normalizeKey, prefixStorage, restoreSnapshot, snapshot };",
+        dts: include_str!("../polyfills/unstorage.d.ts"),
+    },
 ];
 
 /// `.d.ts` for globals dwarf always provides, regardless of `--polyfill` -

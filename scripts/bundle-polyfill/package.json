@@ -1,0 +1,13 @@
+{
+  "name": "bundle-polyfill",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only tool for authoring dwarf static polyfills - not published, not part of the npm/ package.",
+  "scripts": {
+    "bundle": "node bundle-polyfill.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "knitwork": "^1.3.0"
+  }
+}

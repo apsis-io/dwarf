@@ -253,3 +253,51 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+ufo, scule, ohash, knitwork, unstorage, klona
+https://github.com/unjs/ufo
+https://github.com/unjs/scule
+https://github.com/unjs/ohash
+https://github.com/unjs/knitwork
+https://github.com/unjs/unstorage
+https://github.com/lukeed/klona
+================================================================================
+
+`crates/core/polyfills/ufo.js`, `scule.js`, `ohash.js`, `knitwork.js`, and
+`unstorage.js` are bundled builds of the unjs npm packages of the same
+name, each offered as its own opt-in dwarf polyfill (`--polyfill ufo`/
+`scule`/`ohash`/`knitwork`/`unstorage`) exposing a namespaced global
+(`ufo.*`, `scule.*`, `ohash.*`, `knitwork.*`, `unstorage.*`). `ohash.js`
+bundles its pure-JS (non-Node) SHA-256-based digest implementation
+specifically, not its Node crypto-backed one. `unstorage.js` bundles only
+the core package plus its zero-config default (in-memory) driver - every
+other driver (fs, redis, cloudflare-kv, etc.) is Node/host-specific and not
+bundled.
+`crates/core/polyfills/klona.js` is a bundled build of `klona` (a separate,
+unrelated author from the other five), offered as `--polyfill klona`
+exposing a plain `klona` global function.
+
+ufo, scule, ohash, knitwork, unstorage: Copyright (c) Pooya Parsa
+<pooya@pi0.io> (knitwork also credits Daniel Roe <daniel@roe.dev>).
+klona: Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com).
+
+All licensed under the MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
