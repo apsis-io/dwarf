@@ -310,6 +310,7 @@ pub struct AsyncComponentInstance {
     store: Store<WasiCtxState>,
     inner: Instance,
     stdout: MemoryOutputPipe,
+    stderr: MemoryOutputPipe,
 }
 
 impl AsyncComponentInstance {
@@ -333,9 +334,11 @@ impl AsyncComponentInstance {
             }
         }
         let stdout = MemoryOutputPipe::new(10000);
+        let stderr = MemoryOutputPipe::new(10000);
         wasi_builder
             .stdin(MemoryInputPipe::new(stdin.unwrap_or_default()))
-            .stdout(stdout.clone());
+            .stdout(stdout.clone())
+            .stderr(stderr.clone());
         let wasi = wasi_builder.build();
         let table = ResourceTable::new();
         let mut store = Store::new(engine, WasiCtxState { wasi, table });
@@ -350,6 +353,7 @@ impl AsyncComponentInstance {
             store,
             inner: instance,
             stdout,
+            stderr,
         })
     }
 
@@ -389,6 +393,10 @@ impl AsyncComponentInstance {
 
     pub fn stdout_bytes(&self) -> Vec<u8> {
         self.stdout.contents().to_vec()
+    }
+
+    pub fn stderr_bytes(&self) -> Vec<u8> {
+        self.stderr.contents().to_vec()
     }
 }
 

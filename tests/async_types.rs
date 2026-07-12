@@ -314,6 +314,83 @@ async fn test_export_completes_even_if_drain_promise_rejects() {
 }
 
 #[tokio::test]
+async fn test_discarded_err_payload_logged_to_stderr() {
+    // A payload-less `result` (wasi:cli/run's own shape) silently discards
+    // any error payload the guest threw - there's no way to represent it in
+    // the returned value at all. Confirmed in practice (see commit history)
+    // this makes a real rejection look like nothing happened: a clean,
+    // silent process exit with zero diagnostic output anywhere, easily
+    // mistaken for a hang if something restarts the process quickly
+    // afterward. tagged_err now logs the discarded payload to stderr as a
+    // last resort.
+    let mut instance = TestCase::new()
+        .wit(
+            r#"
+            package test:discarded-err;
+            world discarded-err {
+                export run: async func() -> result;
+            }
+        "#,
+        )
+        .script(
+            r#"
+            export async function run() {
+                const error = new Error("ignored message");
+                error.payload = { tag: "custom-error", detail: "structured data" };
+                throw error;
+            }
+            "#,
+        )
+        .build_async()
+        .await
+        .unwrap();
+
+    let result = instance.call1_async("run", &[]).await.unwrap();
+    assert_eq!(result, Val::Result(Err(None)));
+
+    let stderr = String::from_utf8(instance.stderr_bytes()).unwrap();
+    assert!(
+        stderr.contains(r#"{"tag":"custom-error","detail":"structured data"}"#),
+        "expected the discarded payload in stderr, got: {stderr}"
+    );
+}
+
+#[tokio::test]
+async fn test_undefined_err_payload_not_logged_as_noise() {
+    // `throw undefined`/`throw null` against a payload-less result is how
+    // guest code signals "deliberately no information", not a real error
+    // being lost - this must NOT produce the discarded-payload log line.
+    let mut instance = TestCase::new()
+        .wit(
+            r#"
+            package test:silent-err;
+            world silent-err {
+                export run: async func() -> result;
+            }
+        "#,
+        )
+        .script(
+            r#"
+            export async function run() {
+                throw undefined;
+            }
+            "#,
+        )
+        .build_async()
+        .await
+        .unwrap();
+
+    let result = instance.call1_async("run", &[]).await.unwrap();
+    assert_eq!(result, Val::Result(Err(None)));
+
+    let stderr = String::from_utf8(instance.stderr_bytes()).unwrap();
+    assert!(
+        !stderr.contains("dwarf:"),
+        "expected no discarded-payload log for an intentional throw undefined, got: {stderr}"
+    );
+}
+
+#[tokio::test]
 async fn test_async_echo_result() {
     let mut instance = TestCase::new()
         .wit(

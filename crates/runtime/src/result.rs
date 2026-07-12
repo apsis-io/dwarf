@@ -235,9 +235,60 @@ fn tagged_err<'js>(
     if ty.err().is_some() {
         obj.set("val", payload)
             .map_err(|err| CaughtError::from_error(ctx, err))?;
+    } else {
+        // The WIT result's err type has no payload (e.g. a bare `result` -
+        // wasi:cli/run's own shape), so `payload` is about to be discarded
+        // with no way to represent it in the returned value at all. Log it
+        // to stderr first (a plain Rust eprintln! - reaches the real host
+        // fd 2 under wasm32-wasip1/wasip2 regardless of whether the world
+        // imports any WASI stderr interface, the same way an unhandled Rust
+        // panic's message already does) so a real failure doesn't vanish
+        // with zero diagnostic output anywhere - confirmed to happen in
+        // practice: a rejected wasi:cli/run (bare `result`) exits cleanly
+        // and silently, easy to mistake for a hang if something restarts
+        // the process quickly afterward.
+        log_discarded_err_payload(ctx, &payload);
     }
 
     Ok(obj.into_value())
+}
+
+/// Best-effort stderr log for an error payload that's about to be discarded
+/// because the WIT result's err type has no payload to carry it. Skips
+/// `undefined`/`null` - `throw undefined`/`throw null` against a payload-less
+/// `result<T>` is how guest code signals "fail, deliberately with no
+/// information" (see e.g. `test_async_result_no_error_payload`), not a real
+/// error being lost, so logging there would just be noise. Otherwise uses
+/// the payload directly if it's already a string; prefers `JSON.stringify`
+/// for anything else (the payload here is typically a structured WIT
+/// variant/record like a `header-error`, and `String()`'s default object
+/// coercion just produces the useless "[object Object]"), falling back to
+/// `String()` only if that fails (e.g. a value `JSON.stringify` can't
+/// serialize). Never fails the export over a logging problem, so any error
+/// here is itself just swallowed.
+fn log_discarded_err_payload<'js>(ctx: &Ctx<'js>, payload: &Value<'js>) {
+    if payload.is_undefined() || payload.is_null() {
+        return;
+    }
+    let text = if let Some(s) = payload.as_string().and_then(|s| s.to_string().ok()) {
+        s
+    } else if let Ok(json) = ctx.globals().get::<_, Object>("JSON")
+        && let Ok(stringify) = json.get::<_, Function>("stringify")
+        && let Ok(s) = stringify.call::<_, String>((payload.clone(),))
+    {
+        s
+    } else if let Ok(string_fn) = ctx.globals().get::<_, Function>("String")
+        && let Ok(s) = string_fn.call::<_, String>((payload.clone(),))
+    {
+        s
+    } else {
+        return;
+    };
+    eprintln!(
+        "dwarf: an async/sync export rejected with an error, but its declared WIT result type \
+         has no err payload to carry it - the error is being discarded with no other way to \
+         surface it. Original error: {text}"
+    );
 }
 
 fn result_error_payload<'js>(
