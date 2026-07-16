@@ -95,8 +95,8 @@ attributions: README's [Polyfills](../README.md#polyfills) section and
 | Global | Backed by |
 |---|---|
 | `TextEncoder` / `TextDecoder` | Hand-written, always present |
-| `console.log/info/debug/warn/error` | `wasi:cli/stdout`/`stderr` — prefers 0.2 (sync); falls back to 0.3 `write-via-stream` (Promise-returning) if only that's imported |
-| `console.print/println/eprint/eprintln` | Same interfaces, always async (Promise-returning) regardless of version |
+| `console.log/info/debug/warn/error` | `wasi:cli/stdout`/`stderr@0.3.x` (`write-via-stream`, Promise-returning) |
+| `console.print/println/eprint/eprintln` | Same interfaces, always async (Promise-returning) |
 | `process.env/argv/cwd()/exit()` | `wasi:cli/environment`/`exit` (same shape in 0.2 and 0.3) |
 | `crypto.getRandomValues` | `wasi:random/random#get-random-bytes` |
 | `setTimeout`/`setInterval` | `wasi:clocks/monotonic-clock@0.3.x#wait-for` (0.2 has no non-blocking wait, so only 0.3 works) |
@@ -161,10 +161,6 @@ cargo build --release --features opt-size
 
 - **Vendoring** only applies when `--wit` is a *directory* (needs a `deps/` to
   populate). A single WIT file with missing deps is always an error.
-- **`wasi:cli/command@0.3.0` + any `wasi:cli/stdout@0.2.x` import in the same
-  world**: doesn't resolve — `wkg wit fetch` fails on `wasi:cli@0.3.0`'s own
-  transitive deps. Not a dwarf bug; console falls back to the 0.3 path
-  automatically in that case.
 - **Dynamic `import()`**: only works if reached during Wizer's build-time
   module evaluation (top-level code). One reached later, at real runtime
   (e.g. lazily inside a request handler), throws a catchable error naming the

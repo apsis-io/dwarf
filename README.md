@@ -262,53 +262,36 @@ no `deps/` directory to populate.
 ## Console
 
 `console.log`/`info`/`debug` and `console.warn`/`error` are available when the
-world imports either version of `wasi:cli/stdout`/`stderr`, in priority order:
-
-1. **WASI 0.2** (matched by `get-stdout`/`get-stderr`) — genuinely synchronous,
-   guaranteed complete by the time the call returns, exactly like real
-   `console.log`. Prefer this when your world can have it.
-2. **WASI 0.3** (matched by `write-via-stream`) otherwise — WASI 0.3 has no
-   synchronous write primitive, so this path makes `log`/`info`/`debug`/
-   `warn`/`error` return a `Promise<void>` instead of `undefined`. This
-   matters: a p3 world that `include`s `wasi:cli/command@0.3.0` **cannot**
-   also import `wasi:cli/stdout@0.2.x`/`stderr@0.2.x` (see the note below),
-   so any p3-only world lands on this path.
+world imports `wasi:cli/stdout`/`stderr@0.3.x` (matched by `write-via-stream`).
+WASI 0.3 has no synchronous write primitive, so these calls return a
+`Promise<void>` instead of `undefined`.
 
 ```wit
 world hello {
-    import wasi:cli/stdout@0.2.12;
-    import wasi:cli/stderr@0.2.12;
-    export greet: func(name: string) -> string;
+    import wasi:cli/stdout@0.3.0;
+    import wasi:cli/stderr@0.3.0;
+    export greet: async func(name: string) -> string;
 }
 ```
 
 ```js
-export function greet(name) {
-    console.log("greeting", name);
+export async function greet(name) {
+    await console.log("greeting", name);
     return `Hello, ${name}!`;
 }
 ```
 
-`console` always exists — if neither import is declared, calling the
-relevant method throws a clear error naming both options, rather than
-leaving `console` undefined or silently doing nothing.
+`console` always exists — if the import isn't declared, calling the relevant
+method throws a clear error naming it, rather than leaving `console`
+undefined or silently doing nothing.
 
-**In a 0.3-only world, unawaited calls can silently lose output** if nothing
-else in the same async export subsequently awaits or yields — confirmed
-empirically: two unawaited `console.log` calls followed by an `await` on a
-third all flushed correctly, but an unawaited `console.error` as the last
-statement before an export returns produced no output at all. Await
-`console.log`/`error`/etc. (they always return a promise-or-undefined; awaiting
-`undefined` is a no-op) whenever you can't otherwise guarantee the surrounding
-async export keeps running long enough to flush the write. This is *not* a
-concern in a WASI-0.2-backed world, where these calls are always synchronous
-and complete before returning.
-
-> **WIT-level constraint:** `wasi:cli/command@0.3.0` and `wasi:cli/stdout@0.2.x`/
-> `stderr@0.2.x` cannot be vendored together in the same world — `wkg wit fetch`
-> fails to resolve `wasi:cli@0.3.0`'s own transitive deps once a 0.2.x import of
-> the same package is also present. This isn't a dwarf limitation to work
-> around; it's why the 0.3 fallback above exists at all.
+**Unawaited calls can silently lose output** if nothing else in the same
+async export subsequently awaits or yields — confirmed empirically: two
+unawaited `console.log` calls followed by an `await` on a third all flushed
+correctly, but an unawaited `console.error` as the last statement before an
+export returns produced no output at all. Await `console.log`/`error`/etc.
+whenever you can't otherwise guarantee the surrounding async export keeps
+running long enough to flush the write.
 
 Non-string arguments are formatted with `JSON.stringify` — a compact
 single-line dump (`{"foo":"bar"}`, `[1,2,3]`), not Node's multi-line
@@ -323,14 +306,10 @@ swallowed.
 `console.print`/`println` (stdout) and `console.eprint`/`eprintln` (stderr)
 always exist and always return a `Promise<void>` that rejects rather than
 throwing synchronously — `print`/`eprint` write with no trailing newline,
-`println`/`eprintln` append one. They use, in priority order:
-
-1. **WASI 0.3** `wasi:cli/stdout`/`stderr` (matched by `write-via-stream`) if
-   imported — genuinely async, via a real `stream<u8>` handoff.
-2. **WASI 0.2** `wasi:cli/stdout`/`stderr` (matched by `get-stdout`/`get-stderr`)
-   otherwise — the sync write wrapped in an `async` function, for a uniform
-   Promise-returning API regardless of which WASI version is available.
-3. Neither imported — the returned promise rejects, naming both import options.
+`println`/`eprintln` append one. They use `wasi:cli/stdout`/`stderr@0.3.x`
+(matched by `write-via-stream`) if imported — genuinely async, via a real
+`stream<u8>` handoff — and otherwise the returned promise rejects, naming
+the missing import.
 
 ```js
 export async function greet(name) {
@@ -340,15 +319,11 @@ export async function greet(name) {
 }
 ```
 
-**Only safe to call from an async export.** The WASI 0.3 path uses
-component-model stream/future machinery that has no task state outside an
-active async export call — calling it (even indirectly via `console.print`,
-or `console.log`/`error` in a 0.3-only world) from a plain sync export
-crashes outright ("no active task state"), not a graceful error.
-`log`/`info`/`debug`/`warn`/`error` have no such restriction *when backed by
-WASI 0.2* — always safe to call fire-and-forget from anywhere in that case —
-but inherit the same async-export-only restriction as `print`/`println` when
-falling back to WASI 0.3 (see the Console section above).
+**Only safe to call from an async export.** WASI 0.3 uses component-model
+stream/future machinery that has no task state outside an active async
+export call — calling it (even indirectly via `console.print`, or
+`console.log`/`error`) from a plain sync export crashes outright ("no
+active task state"), not a graceful error.
 
 ## Process
 

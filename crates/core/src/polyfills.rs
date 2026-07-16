@@ -422,18 +422,12 @@ fn has_cli(resolve: &Resolve, world_id: WorldId, interface_name: &str, probe_fn:
 }
 
 /// Wires `console.log`/`info`/`debug`/`warn`/`error` to `wasi:cli/stdout`/
-/// `stderr`, preferring the WASI 0.2 sync interface (matched by
-/// `get-stdout`/`get-stderr`) when the world imports it - genuinely
-/// synchronous, matches real `console.log`'s non-Promise contract exactly -
-/// and falling back to the WASI 0.3 `write-via-stream` path (matched by
-/// that function name, so it's told apart from 0.2's structurally different
-/// interface of the same name) when only that's available. `console` always
-/// exists; the half backed by neither import throws a clear error naming
-/// both options instead of silently no-op-ing or leaving `console`
-/// undefined entirely.
+/// `stderr`'s WASI 0.3 `write-via-stream` interface (matched by that
+/// function name) when the world imports it. `console` always exists; the
+/// half backed by neither import throws a clear error naming it instead of
+/// silently no-op-ing or leaving `console` undefined entirely.
 ///
-/// The 0.3 fallback makes `log`/`info`/`debug`/`warn`/`error` Promise-
-/// returning in a 0.3-only world (unlike the always-synchronous 0.2 path) -
+/// This makes `log`/`info`/`debug`/`warn`/`error` Promise-returning -
 /// unavoidable, since WASI 0.3 has no synchronous write primitive at all.
 /// Callers that need the write to have completed before continuing must
 /// await it; fire-and-forget calls carry the same completion-ordering
@@ -441,27 +435,17 @@ fn has_cli(resolve: &Resolve, world_id: WorldId, interface_name: &str, probe_fn:
 /// same async writer rather than a separate code path.
 ///
 /// Also wires `console.print`/`println`/`eprint`/`eprintln` - always async
-/// (Promise-returning) regardless of which WASI version backs them, using
-/// WASI 0.3's `wasi:cli/stdout`/`stderr` (matched by `write-via-stream`)
-/// when imported, falling back to the WASI 0.2 sync write wrapped in an
-/// async fn otherwise. Calling the WASI 0.3 write machinery from a plain
-/// sync export has no task state at all and crashes outright (verified
-/// empirically - "no active task state"), so only an explicitly-async,
-/// explicitly-awaited surface is ever offered for it - true of `print`/
-/// `println` unconditionally, and true of `log`/`info`/`debug`/`warn`/
-/// `error` specifically in the 0.3-fallback case above.
+/// (Promise-returning), using WASI 0.3's `wasi:cli/stdout`/`stderr`
+/// (matched by `write-via-stream`) when imported. Calling the write
+/// machinery from a plain sync export has no task state at all and crashes
+/// outright (verified empirically - "no active task state"), so only an
+/// explicitly-async, explicitly-awaited surface is ever offered for it -
+/// true of `print`/`println` unconditionally, and true of
+/// `log`/`info`/`debug`/`warn`/`error` as well.
 fn generate_console(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>) {
-    let stdout = has_cli(resolve, world_id, "stdout", "get-stdout");
-    let stderr = has_cli(resolve, world_id, "stderr", "get-stderr");
     let stdout_async = has_cli(resolve, world_id, "stdout", "write-via-stream");
     let stderr_async = has_cli(resolve, world_id, "stderr", "write-via-stream");
 
-    if stdout {
-        lines.push(r#"import __consoleStdout from "wasi:cli/stdout";"#.into());
-    }
-    if stderr {
-        lines.push(r#"import __consoleStderr from "wasi:cli/stderr";"#.into());
-    }
     if stdout_async {
         lines.push(r#"import __consoleStdoutAsync from "wasi:cli/stdout";"#.into());
     }
@@ -500,34 +484,16 @@ fn generate_console(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
     lines.push("  }".into());
     lines.push("  function format(args) { return formatPlain(args) + '\\n'; }".into());
 
-    if stdout {
-        // getStdout() returns a live host resource handle, so it must be
-        // re-acquired on every call rather than cached at module scope - a
-        // handle captured at Wizer-init time is baked into the snapshotted
-        // heap but refers to nothing in a real run's fresh resource table
-        // (the same class of bug as capturing raw resources across a
-        // checkpoint boundary).
-        lines.push("  const writeStdout = (...args) => { __consoleStdout.getStdout().blockingWriteAndFlush(encodeUtf8(format(args))); };".into());
-    } else if stdout_async {
-        // No WASI 0.2 stdout import (and per the WIT-ecosystem constraint
-        // documented in the module docs, a p3 world including
-        // wasi:cli/command@0.3.0 cannot add one) - fall back to the 0.3
-        // write-via-stream path, same as print/println. This makes
-        // log/info/debug Promise-returning in a 0.3-only world (unlike the
-        // always-synchronous 0.2 path above) - callers that need the write
-        // to have actually completed before continuing must await it, same
-        // caveat that already applies to print/println.
+    if stdout_async {
         lines.push("  const writeStdout = (...args) => __dwarfTrackWrite(writeStdoutAsync(encodeUtf8(format(args))));".into());
     } else {
-        lines.push("  const writeStdout = () => { throw new Error(\"console.log/info/debug requires importing wasi:cli/stdout@0.2.x or wasi:cli/stdout@0.3.x in your WIT world\"); };".into());
+        lines.push("  const writeStdout = () => { throw new Error(\"console.log/info/debug requires importing wasi:cli/stdout@0.3.x in your WIT world\"); };".into());
     }
 
-    if stderr {
-        lines.push("  const writeStderr = (...args) => { __consoleStderr.getStderr().blockingWriteAndFlush(encodeUtf8(format(args))); };".into());
-    } else if stderr_async {
+    if stderr_async {
         lines.push("  const writeStderr = (...args) => __dwarfTrackWrite(writeStderrAsync(encodeUtf8(format(args))));".into());
     } else {
-        lines.push("  const writeStderr = () => { throw new Error(\"console.warn/error requires importing wasi:cli/stderr@0.2.x or wasi:cli/stderr@0.3.x in your WIT world\"); };".into());
+        lines.push("  const writeStderr = () => { throw new Error(\"console.warn/error requires importing wasi:cli/stderr@0.3.x in your WIT world\"); };".into());
     }
 
     emit_async_writer(
@@ -535,8 +501,6 @@ fn generate_console(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
         "Stdout",
         stdout_async,
         "__consoleStdoutAsync",
-        stdout,
-        "__consoleStdout.getStdout()",
         "print/println",
         "wasi:cli/stdout",
     );
@@ -545,8 +509,6 @@ fn generate_console(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
         "Stderr",
         stderr_async,
         "__consoleStderrAsync",
-        stderr,
-        "__consoleStderr.getStderr()",
         "eprint/eprintln",
         "wasi:cli/stderr",
     );
@@ -563,19 +525,14 @@ fn generate_console(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
 
 /// Emits `write{var_suffix}Async(bytes) -> Promise<void>`: uses WASI 0.3's
 /// `write-via-stream` when available (genuinely async, a real `stream<u8>`
-/// handed off and awaited via its `future<result<_, error-code>>`), falls
-/// back to wrapping the WASI 0.2 sync write in an `async` function
-/// otherwise (still Promise-returning, for a uniform API), and otherwise
-/// throws inside an `async` function (i.e. a rejected promise, the correct
-/// "not available" signal for an async API) naming both import options.
-#[allow(clippy::too_many_arguments)]
+/// handed off and awaited via its `future<result<_, error-code>>`), and
+/// otherwise throws inside an `async` function (i.e. a rejected promise, the
+/// correct "not available" signal for an async API) naming the import.
 fn emit_async_writer(
     lines: &mut Vec<String>,
     var_suffix: &str,
     has_async: bool,
     async_import: &str,
-    has_sync: bool,
-    sync_getter_expr: &str,
     methods: &str,
     interface: &str,
 ) {
@@ -594,7 +551,7 @@ fn emit_async_writer(
         // confirmed empirically. Check first and throw a normal, catchable
         // Error instead.
         lines.push(format!(
-            "    if (!__cqjs.hasActiveTask()) {{ throw new Error(\"console.{methods} (via {interface}@0.3.x) requires an active async task - it can't be called from a plain sync export, or from top-level module code running during dwarf's build-time init (e.g. a library's own import-time side effect). Import {interface}@0.2.x for a version that works everywhere, or only call this from within an `async func` export.\"); }}"
+            "    if (!__cqjs.hasActiveTask()) {{ throw new Error(\"console.{methods} (via {interface}@0.3.x) requires an active async task - it can't be called from a plain sync export, or from top-level module code running during dwarf's build-time init (e.g. a library's own import-time side effect). Only call this from within an `async func` export.\"); }}"
         ));
         lines.push("    const { readable, writable } = wit.Stream(wit.Stream.U8);".into());
         lines.push("    const writeDone = writable.writeAll(bytes);".into());
@@ -608,13 +565,9 @@ fn emit_async_writer(
             "    if (result && result.tag === 'err') {{ throw new Error(\"console.{methods} write failed: \" + JSON.stringify(result.val)); }}"
         ));
         lines.push("  };".into());
-    } else if has_sync {
-        lines.push(format!(
-            "  const {var} = async (bytes) => {{ {sync_getter_expr}.blockingWriteAndFlush(bytes); }};"
-        ));
     } else {
         lines.push(format!(
-            "  const {var} = async () => {{ throw new Error(\"console.{methods} requires importing {interface}@0.3.x (async) or {interface}@0.2.x (sync fallback) in your WIT world\"); }};"
+            "  const {var} = async () => {{ throw new Error(\"console.{methods} requires importing {interface}@0.3.x in your WIT world\"); }};"
         ));
     }
 }
