@@ -534,6 +534,31 @@ directory dependency.
 | `flags` | `object` (camelCase booleans) | `{ read: true, write: false }` |
 | `own<R>`, `borrow<R>` | resource object (methods on its prototype) | `input.blockingRead(n)` |
 
+### Error shapes: imports vs. exports
+
+`result<T, E>`'s `err` case is surfaced differently depending on which side
+of the boundary you're on — this is intentional, not an inconsistency to
+work around:
+
+- **Calling an import** that comes back `err`: dwarf always wraps the raw
+  err payload in a real `Error` — real `.message`/`.stack`,
+  `instanceof Error`, catchable and loggable like any normal JS exception —
+  with the raw tagged payload attached as `error.payload`. For a
+  `variant`/`enum`/`record` err type, that means reading `error.payload.tag`/
+  `.val`, not `error.tag`/`.val` directly.
+- **An export** signaling its own `err` result can throw a plain object
+  matching the WIT shape directly — `throw { tag: "not-found" }` is used
+  as-is, no `.payload` needed — or a real `Error` with a `.payload` property
+  shaped like the WIT error (unwrapped on the way out). A `string` err type
+  also accepts a bare thrown string, or an `Error`'s `.message`.
+
+The reasoning: an import's error is something JS *receives*, so wrapping it
+in a real `Error` gives normal exception ergonomics for a value JS didn't
+construct itself. An export's error is something JS *authors*, so accepting
+the same `{ tag, val }` shape used everywhere else for variants/results
+avoids forcing an `Error` wrapper around a value whose shape the author
+already knows.
+
 ### Imported Resources
 
 Imported resources are exposed as JavaScript classes. Resource methods are

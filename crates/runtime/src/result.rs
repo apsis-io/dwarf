@@ -3,6 +3,23 @@
 //! Nested WIT `result` values use the normal tagged-object representation.
 //! Function returns, however, follow the JCO/ComponentizeJS convention:
 //! `ok` is returned/resolved and `err` is thrown/rejected.
+//!
+//! **The `err` shape is intentionally asymmetric between the two
+//! directions** (confirmed a real, deliberate asymmetry, not a bug, when a
+//! downstream consumer's JS wrapper had to account for it):
+//! - Calling an *import* that errors: `lift`/`component_error_value` always
+//!   wraps the raw err payload in a real `Error`, with the raw tagged value
+//!   attached as `error.payload` - so a non-string err type reads back as
+//!   `error.payload.tag`/`.val`, not `error.tag`/`.val`. JS is the receiver
+//!   here and didn't construct the value, so wrapping it gives normal
+//!   exception ergonomics (catchable, has `.stack`, `instanceof Error`).
+//! - An *export* signaling its own err result (`result_error_payload`): a
+//!   plain object matching the WIT shape is used as-is (`throw { tag: "x" }`
+//!   needs no `.payload`), while an `Error` with a `.payload` property is
+//!   unwrapped on the way out. JS is the author here and already knows the
+//!   shape, so this avoids forcing an `Error` wrapper around a value that's
+//!   already correctly shaped as the tagged `{ tag, val }` convention used
+//!   everywhere else for variants/results.
 
 use rquickjs::function::Args;
 use rquickjs::object::Property;
