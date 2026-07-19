@@ -215,7 +215,7 @@ resources. Stores the canonical component-model resource handle (`u32`).
 User code imports WIT interfaces as ES modules using their full WIT path:
 
 ```js
-import random from "wasi:random/random@0.2.6";
+import random from "wasi:random/random@0.3.0";
 
 export function getRandomU64() {
   return random.getRandomU64();
@@ -223,7 +223,7 @@ export function getRandomU64() {
 ```
 
 The runtime resolves both the versioned specifier and the versionless alias
-internally, for example `wasi:random/random@0.2.6` and `wasi:random/random`.
+internally, for example `wasi:random/random@0.3.0` and `wasi:random/random`.
 The resolved module is a native runtime module whose exports call the host WIT
 imports directly.
 

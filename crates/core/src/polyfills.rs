@@ -613,7 +613,7 @@ fn generate_process(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
         lines.push("  get argv() { return __processEnv.getArguments(); },".into());
         lines.push("  cwd() { return __processEnv.initialCwd(); },".into());
     } else {
-        let msg = "process.env/argv/cwd requires importing wasi:cli/environment (e.g. add `import wasi:cli/environment@0.2.x;` to your WIT world)";
+        let msg = "process.env/argv/cwd requires importing wasi:cli/environment (e.g. add `import wasi:cli/environment@0.3.x;` to your WIT world)";
         lines.push(format!("  get env() {{ throw new Error(\"{msg}\"); }},"));
         lines.push(format!("  get argv() {{ throw new Error(\"{msg}\"); }},"));
         lines.push(format!("  cwd() {{ throw new Error(\"{msg}\"); }},"));
@@ -624,7 +624,7 @@ fn generate_process(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
             "  exit(code) { __processExit.exitWithCode(((code ?? 0) & 0xff) >>> 0); },".into(),
         );
     } else {
-        lines.push("  exit() { throw new Error(\"process.exit requires importing wasi:cli/exit (e.g. add `import wasi:cli/exit@0.2.x;` to your WIT world)\"); },".into());
+        lines.push("  exit() { throw new Error(\"process.exit requires importing wasi:cli/exit (e.g. add `import wasi:cli/exit@0.3.x;` to your WIT world)\"); },".into());
     }
 
     lines.push("});".into());

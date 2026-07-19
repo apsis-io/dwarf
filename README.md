@@ -336,8 +336,8 @@ unbacked property throws a clear error naming what to add.
 
 ```wit
 world hello {
-    import wasi:cli/environment@0.2.12;
-    import wasi:cli/exit@0.2.12;
+    import wasi:cli/environment@0.3.0;
+    import wasi:cli/exit@0.3.0;
     export greet: func(name: string) -> string;
 }
 ```
@@ -565,15 +565,16 @@ Imported resources are exposed as JavaScript classes. Resource methods are
 called on the handle:
 
 ```js
-import stdin from "wasi:cli/stdin@0.2.12";
-import stdout from "wasi:cli/stdout@0.2.12";
+import { TcpSocket } from "wasi:sockets/types@0.3.0";
 
-const input = stdin.getStdin();     // an InputStream
-const output = stdout.getStdout();  // an OutputStream
+// [static] methods are exposed directly on the class.
+const sock = TcpSocket.create("ipv4");
 
 // Methods whose WIT return type is result<...> return the ok payload or throw.
-const chunk = input.blockingRead(4096);   // method on the resource (len is a number)
-output.blockingWriteAndFlush(chunk);
+sock.bind({ tag: "ipv4", val: { port: 0, address: [0, 0, 0, 0] } });
+
+// async func methods return a real Promise.
+await sock.connect({ tag: "ipv4", val: { port: 80, address: [93, 184, 216, 34] } });
 ```
 
 `[static]` methods are exposed on the resource class and `[constructor]` makes
