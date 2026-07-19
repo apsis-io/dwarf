@@ -708,5 +708,5 @@ class WebSocketServer {
   }
 }
 
-globalThis.WebSocketServer = WebSocketServer;
+globalThis.WebSocketServerP3 = WebSocketServer;
 })();

@@ -2,6 +2,9 @@
 // automatically when the world imports wasi:cli/environment/exit; see
 // README.md "Process" section for divergences from Node and exactly what's
 // backed vs. what throws).
+//
+// `processP3` is the same object as `process` - see console.d.ts's note on
+// the `...P3` naming convention for why it exists alongside the plain name.
 
 interface Process {
   /** Always re-fetched from wasi:cli/environment on access, never cached. */
@@ -15,3 +18,4 @@ interface Process {
 }
 
 declare const process: Process;
+declare const processP3: Process;

@@ -117,6 +117,12 @@ has the same "must be awaited from a still-running export" shape, since it
 accept-loops forever — see README's [WebSockets](../README.md#websockets)
 section for the full API and scope cuts (IPv4 only, no permessage-deflate).
 
+Every global in the table above also has a `...P3` name (`consoleP3`,
+`processP3`, `crypto.getRandomValuesP3`, `setTimeoutP3`/etc., `fetchP3`,
+`WebSocketServerP3`) - the same object/function, additive, not a
+replacement. See README's [Version-pinned `...P3`
+names](../README.md#version-pinned-p3-names) section for why.
+
 ## WIT → JS type mapping (condensed)
 
 | WIT | JS |

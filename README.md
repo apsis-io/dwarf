@@ -259,6 +259,24 @@ setup needed for a quick start. Disable this with `--no-vendor`; auto-vendoring
 only applies to directory `--wit` paths, since a single standalone WIT file has
 no `deps/` directory to populate.
 
+## Version-pinned `...P3` names
+
+Every WASI-backed global below (`console`, `process`, `crypto.getRandomValues`,
+`setTimeout`/`setInterval`/`clearTimeout`/`clearInterval`, `fetch`,
+`WebSocketServer`) is also available under an explicit `...P3` name
+(`consoleP3`, `processP3`, `crypto.getRandomValuesP3`, `setTimeoutP3`, etc.) —
+the exact same object/function as the plain name, just under a second,
+stable name. This is purely additive: nothing that depends on the plain
+name (your own code, vendored library code) is affected.
+
+All of these are backed by WASI 0.3 today, so right now the alias changes
+nothing. It exists for later: if a future WASI version ever changes what the
+plain name points to, `xP3` stays pinned to "the 0.3 implementation,
+specifically" — reach for it when you want that guarantee. Otherwise, just
+use the plain name; if you want the short name back after depending on the
+pinned one, TypeScript's own import aliasing covers that at your own call
+site (`import { consoleP3 as console } from "..."`).
+
 ## Console
 
 `console.log`/`info`/`debug` and `console.warn`/`error` are available when the

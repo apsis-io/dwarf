@@ -17,8 +17,11 @@ declare class TextDecoder {
 // `--polyfill webcrypto`, which only adds `crypto.subtle` (see
 // webcrypto.d.ts). Declared as `var` (not `const`) since the `webcrypto`
 // polyfill extends the same `globalThis.crypto` object with `.subtle`.
+// `getRandomValuesP3` is the same function as `getRandomValues` - see
+// console.d.ts's note on the `...P3` naming convention.
 declare var crypto: {
   getRandomValues<T extends ArrayBufferView>(typedArray: T): T;
+  getRandomValuesP3<T extends ArrayBufferView>(typedArray: T): T;
 };
 
 interface AbortEvent {
@@ -50,7 +53,14 @@ declare class AbortController {
 // if the async export that (transitively) created it settles first - a real
 // component-model-async constraint, not a dwarf bug. See generate_timers in
 // crates/core/src/polyfills.rs for the full explanation.
+//
+// The `...P3` counterparts are the same functions as the plain names - see
+// console.d.ts's note on the naming convention.
 declare function setTimeout(fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]): number;
 declare function clearTimeout(handle: number | undefined): void;
 declare function setInterval(fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]): number;
 declare function clearInterval(handle: number | undefined): void;
+declare function setTimeoutP3(fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]): number;
+declare function clearTimeoutP3(handle: number | undefined): void;
+declare function setIntervalP3(fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]): number;
+declare function clearIntervalP3(handle: number | undefined): void;

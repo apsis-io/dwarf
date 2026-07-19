@@ -146,11 +146,11 @@ function createHasher(hashCons, info = {}) {
 function randomBytes(bytesLength = 32) {
   anumber(bytesLength, "bytesLength");
   const cr = typeof globalThis === "object" ? globalThis.crypto : null;
-  if (typeof cr?.getRandomValues !== "function")
-    throw new Error("crypto.getRandomValues must be defined");
+  if (typeof cr?.getRandomValuesP3 !== "function")
+    throw new Error("crypto.getRandomValuesP3 must be defined");
   if (bytesLength > 65536)
     throw new RangeError(`"bytesLength" expected <= 65536, got ${bytesLength}`);
-  return cr.getRandomValues(new Uint8Array(bytesLength));
+  return cr.getRandomValuesP3(new Uint8Array(bytesLength));
 }
 var oidNist = (suffix) => ({
   // Current NIST hashAlgs suffixes used here fit in one DER subidentifier octet.
@@ -3267,12 +3267,12 @@ async function generateKey(algorithm, extractable, keyUsages) {
       const hashName = hashNameOf(alg.hash);
       requireHash(hashName);
       const lengthBits = alg.length ?? { "SHA-1": 512, "SHA-256": 512, "SHA-384": 1024, "SHA-512": 1024 }[hashName];
-      const bytes = globalThis.crypto.getRandomValues(new Uint8Array(Math.ceil(lengthBits / 8)));
+      const bytes = globalThis.crypto.getRandomValuesP3(new Uint8Array(Math.ceil(lengthBits / 8)));
       return makeKey("secret", extractable, { name: "HMAC", hash: { name: hashName }, length: lengthBits }, keyUsages, bytes);
     }
     case "AES-GCM": {
       const lengthBits = alg.length ?? 256;
-      const bytes = globalThis.crypto.getRandomValues(new Uint8Array(aesKeyLengthBytes(lengthBits)));
+      const bytes = globalThis.crypto.getRandomValuesP3(new Uint8Array(aesKeyLengthBytes(lengthBits)));
       return makeKey("secret", extractable, { name: "AES-GCM", length: lengthBits }, keyUsages, bytes);
     }
     case "ECDSA":

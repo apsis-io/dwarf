@@ -13,6 +13,27 @@
 //!   shim (matching `console`'s already-shipped behavior), each throwing a
 //!   clear "import this to enable it" error at the point of use rather than
 //!   failing the build when the backing import is missing.
+//!
+//! Every WASI-backed polyfill's implementation is built under an explicit
+//! `...P3` name (`consoleP3`, `processP3`, `crypto.getRandomValuesP3`,
+//! `setTimeoutP3`/`setIntervalP3`/`clearTimeoutP3`/`clearIntervalP3`,
+//! `fetchP3`, `WebSocketServerP3`) - the plain name (`console`, `fetch`,
+//! etc.) is then aliased FROM the `P3` one (`globalThis.console =
+//! globalThis.consoleP3;`), never the other way around. This direction
+//! matters: the plain name is the "current best available" convenience
+//! binding, meant to be free to repoint at a newer version's implementation
+//! later (a hypothetical WASI 0.4/"p4") without notice; `xP3` is meant to
+//! always mean "the 0.3 implementation, forever," for code that wants that
+//! guarantee. Building `xP3 = <impl>; x = xP3;` (in that order) keeps that
+//! true even after a future version is added; the reverse (`x = <impl>;
+//! xP3 = x;`) would silently break it the moment `x` gets repointed at
+//! something newer, since `xP3` would just be whatever `x` happened to be
+//! at generation time, not necessarily the 0.3 implementation specifically.
+//! Vendored library code that itself needs one of these internally (e.g.
+//! `webcrypto.js`'s bundled `@noble/*` code, which upstream calls
+//! `crypto.getRandomValues`) is patched at vendor time to call the `P3`
+//! name directly, for the same reason - see
+//! `crates/core/polyfills/webcrypto.js`.
 
 use std::sync::LazyLock;
 
@@ -453,7 +474,7 @@ fn generate_console(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
         lines.push(r#"import __consoleStderrAsync from "wasi:cli/stderr";"#.into());
     }
 
-    lines.push("globalThis.console = (function() {".into());
+    lines.push("globalThis.consoleP3 = (function() {".into());
     lines.push("  function encodeUtf8(str) {".into());
     lines.push("    const bytes = [];".into());
     lines.push("    for (let i = 0; i < str.length; i++) {".into());
@@ -521,6 +542,7 @@ fn generate_console(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
     lines.push("    eprintln: (...args) => writeStderrAsync(encodeUtf8(format(args))),".into());
     lines.push("  });".into());
     lines.push("})();".into());
+    lines.push("globalThis.console = globalThis.consoleP3;".into());
 }
 
 /// Emits `write{var_suffix}Async(bytes) -> Promise<void>`: uses WASI 0.3's
@@ -604,7 +626,7 @@ fn generate_process(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
         lines.push(r#"import __processExit from "wasi:cli/exit";"#.into());
     }
 
-    lines.push("globalThis.process = Object.freeze({".into());
+    lines.push("globalThis.processP3 = Object.freeze({".into());
 
     if has_env {
         lines.push(
@@ -628,6 +650,7 @@ fn generate_process(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String
     }
 
     lines.push("});".into());
+    lines.push("globalThis.process = globalThis.processP3;".into());
 }
 
 /// Wires `crypto.getRandomValues` to `wasi:random/random#get-random-bytes`
@@ -661,7 +684,7 @@ fn generate_crypto_get_random_values(
 
     if has_random {
         lines.push(r#"import __wasiRandom from "wasi:random/random";"#.into());
-        lines.push("globalThis.crypto.getRandomValues = function(typedArray) {".into());
+        lines.push("globalThis.crypto.getRandomValuesP3 = function(typedArray) {".into());
         lines.push("  const bytes = __wasiRandom.getRandomBytes(typedArray.byteLength);".into());
         lines.push(
             "  new Uint8Array(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength).set(bytes);"
@@ -670,8 +693,9 @@ fn generate_crypto_get_random_values(
         lines.push("  return typedArray;".into());
         lines.push("};".into());
     } else {
-        lines.push("globalThis.crypto.getRandomValues = function() { throw new Error(\"crypto.getRandomValues requires importing wasi:random/random (e.g. add `import wasi:random/random;` to your WIT world)\"); };".into());
+        lines.push("globalThis.crypto.getRandomValuesP3 = function() { throw new Error(\"crypto.getRandomValuesP3 requires importing wasi:random/random (e.g. add `import wasi:random/random;` to your WIT world)\"); };".into());
     }
+    lines.push("globalThis.crypto.getRandomValues = globalThis.crypto.getRandomValuesP3;".into());
 }
 
 /// Wires `setTimeout`/`setInterval` to `wasi:clocks/monotonic-clock@0.3.x`'s
@@ -715,8 +739,8 @@ fn generate_timers(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>
     lines.push("(function() {".into());
     lines.push("  let nextHandle = 1;".into());
     lines.push("  const cancelled = new Set();".into());
-    lines.push("  globalThis.clearTimeout = function(handle) { cancelled.add(handle); };".into());
-    lines.push("  globalThis.clearInterval = globalThis.clearTimeout;".into());
+    lines.push("  globalThis.clearTimeoutP3 = function(handle) { cancelled.add(handle); };".into());
+    lines.push("  globalThis.clearIntervalP3 = globalThis.clearTimeoutP3;".into());
 
     if has_wait_for {
         lines.push("  function checkActiveTask(name) {".into());
@@ -726,8 +750,8 @@ fn generate_timers(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>
         );
         lines.push("  }".into());
 
-        lines.push("  globalThis.setTimeout = function(fn, ms, ...args) {".into());
-        lines.push("    checkActiveTask('setTimeout');".into());
+        lines.push("  globalThis.setTimeoutP3 = function(fn, ms, ...args) {".into());
+        lines.push("    checkActiveTask('setTimeoutP3');".into());
         lines.push("    const handle = nextHandle++;".into());
         lines.push("    const nanos = BigInt(Math.max(0, Math.trunc(ms || 0))) * 1000000n;".into());
         lines.push("    __wasiMonotonicClock.waitFor(nanos).then(function() {".into());
@@ -737,8 +761,8 @@ fn generate_timers(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>
         lines.push("    return handle;".into());
         lines.push("  };".into());
 
-        lines.push("  globalThis.setInterval = function(fn, ms, ...args) {".into());
-        lines.push("    checkActiveTask('setInterval');".into());
+        lines.push("  globalThis.setIntervalP3 = function(fn, ms, ...args) {".into());
+        lines.push("    checkActiveTask('setIntervalP3');".into());
         lines.push("    const handle = nextHandle++;".into());
         lines.push("    const nanos = BigInt(Math.max(0, Math.trunc(ms || 0))) * 1000000n;".into());
         lines.push("    (function tick() {".into());
@@ -756,14 +780,18 @@ fn generate_timers(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>
     } else {
         let msg = "requires importing wasi:clocks/monotonic-clock@0.3.x (e.g. add `import wasi:clocks/monotonic-clock@0.3.x;` to your WIT world) - wasi:clocks 0.2 has no non-blocking wait primitive, so this can't be backed by it";
         lines.push(format!(
-            "  globalThis.setTimeout = function() {{ throw new Error(\"setTimeout {msg}\"); }};"
+            "  globalThis.setTimeoutP3 = function() {{ throw new Error(\"setTimeoutP3 {msg}\"); }};"
         ));
         lines.push(format!(
-            "  globalThis.setInterval = function() {{ throw new Error(\"setInterval {msg}\"); }};"
+            "  globalThis.setIntervalP3 = function() {{ throw new Error(\"setIntervalP3 {msg}\"); }};"
         ));
     }
 
     lines.push("})();".into());
+    lines.push("globalThis.setTimeout = globalThis.setTimeoutP3;".into());
+    lines.push("globalThis.setInterval = globalThis.setIntervalP3;".into());
+    lines.push("globalThis.clearTimeout = globalThis.clearTimeoutP3;".into());
+    lines.push("globalThis.clearInterval = globalThis.clearIntervalP3;".into());
 }
 
 /// Wires a global `fetch(input, init)` directly to `wasi:http/client@0.3.x`,
@@ -818,7 +846,8 @@ fn generate_fetch(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>)
     let has_client = has_wasi_function(resolve, world_id, "wasi", "http", "client", "send");
 
     if !has_client {
-        lines.push("globalThis.fetch = function() { throw new Error(\"fetch() requires importing wasi:http/client@0.3.x (e.g. add `import wasi:http/client@0.3.x;` to your WIT world) and the fetch-classes polyfill (--polyfill fetch-classes) for Request/Response/Headers\"); };".into());
+        lines.push("globalThis.fetchP3 = function() { throw new Error(\"fetchP3() requires importing wasi:http/client@0.3.x (e.g. add `import wasi:http/client@0.3.x;` to your WIT world) and the fetch-classes polyfill (--polyfill fetch-classes) for Request/Response/Headers\"); };".into());
+        lines.push("globalThis.fetch = globalThis.fetchP3;".into());
         return;
     }
 
@@ -828,9 +857,9 @@ fn generate_fetch(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>)
     );
     lines.push(r#"import { send as __wasiHttpSend } from "wasi:http/client";"#.into());
 
-    lines.push("globalThis.fetch = async function fetch(input, init = {}) {".into());
+    lines.push("globalThis.fetchP3 = async function fetchP3(input, init = {}) {".into());
     lines.push(
-        "  if (!__cqjs.hasActiveTask()) { throw new Error(\"fetch() (via wasi:http/client) requires an active async task - it can't be called from a plain sync export, or from top-level module code running during dwarf's build-time init. Only call this from within an `async func` export.\"); }"
+        "  if (!__cqjs.hasActiveTask()) { throw new Error(\"fetchP3() (via wasi:http/client) requires an active async task - it can't be called from a plain sync export, or from top-level module code running during dwarf's build-time init. Only call this from within an `async func` export.\"); }"
             .into(),
     );
     lines.push(
@@ -943,6 +972,7 @@ fn generate_fetch(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>)
             .into(),
     );
     lines.push("};".into());
+    lines.push("globalThis.fetch = globalThis.fetchP3;".into());
 }
 
 /// Wires a global `WebSocketServer` class to `wasi:sockets/types@0.3.0`'s
@@ -986,10 +1016,12 @@ fn generate_websocket(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<Stri
     );
 
     if !has_tcp {
-        lines.push("globalThis.WebSocketServer = class WebSocketServer { constructor() { throw new Error(\"WebSocketServer requires importing wasi:sockets/types@0.3.0 (e.g. add `import wasi:sockets/types@0.3.0;` to your WIT world)\"); } };".into());
+        lines.push("globalThis.WebSocketServerP3 = class WebSocketServerP3 { constructor() { throw new Error(\"WebSocketServerP3 requires importing wasi:sockets/types@0.3.0 (e.g. add `import wasi:sockets/types@0.3.0;` to your WIT world)\"); } };".into());
+        lines.push("globalThis.WebSocketServer = globalThis.WebSocketServerP3;".into());
         return;
     }
 
     lines.push(r#"import { TcpSocket } from "wasi:sockets/types@0.3.0";"#.into());
     lines.push(include_str!("../polyfills/websocket-server.js").into());
+    lines.push("globalThis.WebSocketServer = globalThis.WebSocketServerP3;".into());
 }
