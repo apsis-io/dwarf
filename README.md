@@ -509,6 +509,24 @@ then owns the connection for the rest of its life, handed to
 Request bodies are read via `Content-Length` only (no chunked
 transfer-encoding, no `Expect: 100-continue`).
 
+This parses untrusted network input inside the guest, so it's hardened
+against hostile/malformed requests, failing closed and bounded rather than
+hanging or over-allocating: request header blocks are capped at 16 KiB
+(`431` if exceeded) with at most 100 headers, request lines and
+`Content-Length` are strictly validated (`400` on anything malformed —
+negative, non-numeric, or otherwise not a plain non-negative integer),
+`Transfer-Encoding` is rejected outright (`501`) rather than silently
+mishandled (treating a chunked body as length-zero would let its bytes be
+misread as the next pipelined request), an oversized `Content-Length` is
+rejected (`413`) before a single byte of the body is read or buffered, and
+a connection that goes idle mid-request (opens, then sends nothing, or
+trickles bytes forever — the slowloris shape) is given up on after
+`idleTimeoutMs` (default 30s; needs `wasi:clocks/monotonic-clock@0.3.x`
+imported to be enforced at all — see `WebSocketServer`'s constructor
+options). Any parse failure closes the connection afterward rather than
+keeping it alive for more pipelining, since the byte stream's framing can
+no longer be trusted.
+
 ## Polyfills
 
 `TextEncoder`/`TextDecoder` (UTF-8 only) are always available — dwarf's

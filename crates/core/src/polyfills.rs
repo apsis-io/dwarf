@@ -1030,7 +1030,28 @@ fn generate_fetch(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>)
 /// Blob/ArrayBuffer `binaryType` switch - there's no `Blob` in dwarf), no
 /// backpressure signaling on `send()` beyond a per-connection write queue.
 /// The HTTP router side has its own cuts: no chunked transfer-encoding on
-/// the request side (`Content-Length` only), no `Expect: 100-continue`.
+/// the request side (`Content-Length` only, rejected outright with `501`
+/// rather than silently mishandled), no `Expect: 100-continue`.
+///
+/// The HTTP router parses untrusted network input, so it's hardened
+/// against hostile/malformed requests: bounded header block size/count
+/// (16 KiB / 100 headers, `431` if exceeded), strict request-line/
+/// `Content-Length` validation (`400` on anything malformed), an oversized
+/// `Content-Length` rejected (`413`) before any of the body is read (not
+/// after buffering an attacker-declared amount), and an idle-read timeout
+/// (`idleTimeoutMs`, default 30s) so a connection that opens and then sends
+/// nothing/trickles bytes forever (slowloris) doesn't hold a connection or
+/// task open indefinitely - only enforced when the world imports
+/// `wasi:clocks/monotonic-clock@0.3.x` (same graceful-degradation shape as
+/// `setTimeout` itself), since the HTTP router shouldn't otherwise depend
+/// on a WIT import unrelated to sockets. Notably, the timeout path does
+/// NOT call the stream's `cancelRead()` on the losing side of its
+/// `Promise.race` - confirmed empirically that doing so traps the guest
+/// ("waitable cannot be used synchronously while added to a waitable
+/// set"), a hard wasm trap rather than a catchable error; dropping the
+/// connection's sockets/streams at the end of `handleConnection` (already
+/// happening regardless) is sufficient to actually close the underlying
+/// connection, without needing to proactively cancel the abandoned read.
 fn generate_websocket(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>) {
     let has_tcp = has_wasi_function(
         resolve,

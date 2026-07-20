@@ -26,7 +26,21 @@ interface WebSocketConnection {
 }
 
 declare class WebSocketServer {
-  constructor(opts?: { maxPayload?: number });
+  /**
+   * `maxPayload` bounds a single WS frame's payload (default 100 MiB).
+   * `maxBodyBytes` bounds an HTTP request body via its `Content-Length`
+   * (default 10 MiB) - a request declaring more than this is rejected with
+   * `413` before any of the body is read, not after buffering it.
+   * `idleTimeoutMs` (default 30000) bounds how long the HTTP router will
+   * wait for the next chunk of a request (headers or body) before giving
+   * up on the connection - protects against a client that opens a
+   * connection and then sends nothing, or trickles bytes forever
+   * (slowloris-shaped). Only enforced when the world imports
+   * `wasi:clocks/monotonic-clock@0.3.x`; without it, reads have no timeout
+   * (graceful degradation, matching `setTimeout`'s own fallback - see
+   * generate_timers).
+   */
+  constructor(opts?: { maxPayload?: number; maxBodyBytes?: number; idleTimeoutMs?: number });
   /** The actual bound port, set once `listen()` has bound the socket - useful when `port` was `0` (OS-assigned). */
   readonly port: number | null;
   on(event: "connection", cb: (conn: WebSocketConnection) => void): void;
