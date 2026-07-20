@@ -1,0 +1,15 @@
+package test:internal-borrow;
+
+interface probe {
+  resource probe-thing {
+    ping: func() -> string;
+  }
+
+  create-thing: func() -> probe-thing;
+}
+
+world internal-borrow-test {
+  import probe;
+
+  export run: async func() -> string;
+}
