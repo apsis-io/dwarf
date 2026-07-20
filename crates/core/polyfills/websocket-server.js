@@ -1,4 +1,10 @@
-// websocket-server.js - RFC 6455 server-side WebSocket support.
+// websocket-server.js - RFC 6455 server-side WebSocket support, plus a
+// general single-port HTTP+WS router (WebSocketServer's raw-socket HTTP
+// parser also serves plain HTTP requests when a 'request' handler is
+// registered - lets one wasi:sockets listener carry both a normal HTTP
+// (e.g. SSR) response path and WebSocket upgrades on the same port, which
+// matters for hosts that front a component with a single-SNI/single-backend
+// path that can't be split across two ports).
 //
 // The frame parser's validation rules (RSV bit checks, opcode/fragmentation
 // legality, control-frame constraints, mask enforcement, UTF-8 and close-
@@ -430,7 +436,11 @@ function buildCloseFrame(code, reason) {
   return buildFrame(OPCODE_CLOSE, payload, true);
 }
 
-// --- HTTP upgrade handshake ----------------------------------------------
+// --- HTTP message parsing -------------------------------------------------
+// Shared by the WebSocket upgrade handshake and the plain-HTTP router below
+// - both start the same way (read raw bytes off the socket until the blank
+// line ending the header block), then diverge based on whether the request
+// is a WS upgrade.
 
 function findHeaderEnd(bytes) {
   for (let i = 0; i + 3 < bytes.length; i++) {
@@ -481,30 +491,81 @@ function buildUpgradeResponse(acceptKey) {
   return new TextEncoder().encode(text);
 }
 
-// Reads raw bytes off `recvReadable` until the blank line ending the HTTP
-// request header block is seen. Returns the header bytes and any bytes read
-// past that point (start of a pipelined WebSocket frame, if the client sent
-// one before the handshake response went out - permitted by RFC 6455 but
-// unusual).
-async function readHandshake(recvReadable) {
-  const chunks = [];
-  let total = 0;
+// Reads raw bytes off `recvReadable` (starting from any already-buffered
+// `leftover` bytes, e.g. the tail of a previous HTTP/1.1 keep-alive request)
+// until the blank line ending an HTTP header block is seen. Returns the
+// header bytes and any bytes read past that point (the start of the body,
+// or a pipelined next request/WS frame), or `null` if the connection closed
+// before a complete header block arrived.
+async function readHttpHeaders(recvReadable, leftover) {
+  let combined = leftover || new Uint8Array(0);
   for (;;) {
-    const next = await recvReadable.read(4096);
-    if (next.length === 0) throw new Error("connection closed during WebSocket handshake");
-    chunks.push(next);
-    total += next.length;
-
-    const combined = concatBytes(chunks, total);
     const end = findHeaderEnd(combined);
     if (end !== -1) {
       return { headerBytes: combined.subarray(0, end), rest: combined.subarray(end) };
     }
-
-    chunks.length = 1;
-    chunks[0] = combined;
-    total = combined.length;
+    const next = await recvReadable.read(4096);
+    if (next.length === 0) return null;
+    combined = combined.length ? concatBytes([combined, next], combined.length + next.length) : next;
   }
+}
+
+// Reads exactly `contentLength` body bytes, starting from whatever's already
+// buffered in `leftover` (bytes read past the header block). Returns the
+// body and any bytes left over past it (the start of the next pipelined
+// request). A connection closing before the full body arrives yields
+// whatever was actually read - callers treat a short body as if the peer
+// closed normally, matching this module's existing best-effort error style.
+async function readHttpBody(recvReadable, leftover, contentLength) {
+  let combined = leftover;
+  while (combined.length < contentLength) {
+    const next = await recvReadable.read(4096);
+    if (next.length === 0) break;
+    combined = concatBytes([combined, next], combined.length + next.length);
+  }
+  const end = Math.min(contentLength, combined.length);
+  return { body: combined.subarray(0, end), rest: combined.subarray(end) };
+}
+
+const STATUS_TEXTS = {
+  200: "OK",
+  201: "Created",
+  204: "No Content",
+  301: "Moved Permanently",
+  302: "Found",
+  304: "Not Modified",
+  400: "Bad Request",
+  401: "Unauthorized",
+  403: "Forbidden",
+  404: "Not Found",
+  405: "Method Not Allowed",
+  500: "Internal Server Error",
+  502: "Bad Gateway",
+  503: "Service Unavailable",
+};
+
+// Serializes a real `Response` (from the `fetch-classes` polyfill - not
+// referenced until this function actually runs, matching the same lazy,
+// requires-the-polyfill-or-throws-a-plain-ReferenceError convention already
+// used by generate_fetch's `fetch()`) into raw HTTP/1.1 response bytes.
+async function writeHttpResponse(sendWritable, response) {
+  const bodyBytes = new Uint8Array(await response.arrayBuffer());
+  const statusText = response.statusText || STATUS_TEXTS[response.status] || "";
+
+  let head = `HTTP/1.1 ${response.status} ${statusText}\r\n`;
+  let hasContentLength = false;
+  for (const [name, value] of response.headers.entries()) {
+    if (name.toLowerCase() === "content-length") hasContentLength = true;
+    head += `${name}: ${value}\r\n`;
+  }
+  if (!hasContentLength) head += `Content-Length: ${bodyBytes.length}\r\n`;
+  head += "\r\n";
+
+  const headBytes = new TextEncoder().encode(head);
+  const full = new Uint8Array(headBytes.length + bodyBytes.length);
+  full.set(headBytes, 0);
+  full.set(bodyBytes, headBytes.length);
+  await sendWritable.writeAll(full);
 }
 
 // --- Public API -----------------------------------------------------------
@@ -556,36 +617,14 @@ class WebSocketConnection {
   }
 }
 
-async function handleConnection(sock, onConnection, maxPayload) {
-  const { readable: sendReadable, writable: sendWritable } = wit.Stream(wit.Stream.U8);
-  const sendFuture = sock.send(sendReadable);
-  const [recvReadable, recvFuture] = sock.receive();
-
-  let handshake;
-  try {
-    handshake = await readHandshake(recvReadable);
-  } catch (e) {
-    sendWritable.drop();
-    sock.drop();
-    return;
-  }
-
-  const headerText = new TextDecoder().decode(handshake.headerBytes);
-  const requestLine = headerText.slice(0, headerText.indexOf("\r\n"));
-  const { path } = parseRequestLine(requestLine);
-  const headers = parseHttpHeaders(headerText);
-  const clientKey = headers["sec-websocket-key"];
-
-  if (!clientKey || (headers["upgrade"] || "").toLowerCase() !== "websocket") {
-    sendWritable.drop();
-    sock.drop();
-    return;
-  }
-
-  const acceptKey = await computeAcceptKey(clientKey);
-  await sendWritable.writeAll(buildUpgradeResponse(acceptKey));
-
-  const conn = new WebSocketConnection(sock, sendWritable, path, headers);
+// Runs the WebSocket session to its conclusion once a connection has been
+// upgraded - this consumes the rest of the underlying connection (RFC 6455
+// gives the WS framing exclusive ownership of the byte stream from here
+// on), so unlike plain HTTP requests there's no looping for a "next
+// message" at this level - the FrameParser itself keeps consuming frames
+// until closed.
+async function runWebSocketSession(sendWritable, recvReadable, initialRest, path, headers, onConnection, maxPayload) {
+  const conn = new WebSocketConnection(null, sendWritable, path, headers);
   const parser = new FrameParser(maxPayload);
   parser.onMessage = (data) => conn._emit("message", data);
   parser.onPing = (data) => {
@@ -604,8 +643,7 @@ async function handleConnection(sock, onConnection, maxPayload) {
   onConnection(conn);
 
   try {
-    if (handshake.rest.length) parser.write(handshake.rest);
-
+    if (initialRest.length) parser.write(initialRest);
     while (!parser._concluded) {
       const chunk = await recvReadable.read(4096);
       if (chunk.length === 0) break;
@@ -625,6 +663,84 @@ async function handleConnection(sock, onConnection, maxPayload) {
   } catch (e) {
     // Best-effort: the peer may already be gone.
   }
+}
+
+// One accepted connection's whole lifetime: an HTTP/1.1 keep-alive loop
+// (serving each non-upgrade request to `onRequest`, if registered) that
+// exits either by upgrading to a WebSocket session (which then owns the
+// connection until it closes) or by a normal HTTP close - `Connection:
+// close`, the peer disconnecting, or (when no `onRequest` is registered,
+// preserving this module's original behavior) the first non-upgrade
+// request being dropped outright.
+async function handleConnection(sock, onConnection, onRequest, maxPayload) {
+  const { readable: sendReadable, writable: sendWritable } = wit.Stream(wit.Stream.U8);
+  const sendFuture = sock.send(sendReadable);
+  const [recvReadable, recvFuture] = sock.receive();
+
+  let rest = new Uint8Array(0);
+
+  try {
+    for (;;) {
+      let msg;
+      try {
+        msg = await readHttpHeaders(recvReadable, rest);
+      } catch (e) {
+        break;
+      }
+      if (!msg) break;
+
+      const headerText = new TextDecoder().decode(msg.headerBytes);
+      const requestLine = headerText.slice(0, headerText.indexOf("\r\n"));
+      const { method, path } = parseRequestLine(requestLine);
+      const headers = parseHttpHeaders(headerText);
+      const clientKey = headers["sec-websocket-key"];
+      const isUpgrade = !!clientKey && (headers["upgrade"] || "").toLowerCase() === "websocket";
+
+      if (isUpgrade) {
+        const acceptKey = await computeAcceptKey(clientKey);
+        await sendWritable.writeAll(buildUpgradeResponse(acceptKey));
+        await runWebSocketSession(
+          sendWritable,
+          recvReadable,
+          msg.rest,
+          path,
+          headers,
+          onConnection,
+          maxPayload,
+        );
+        break;
+      }
+
+      if (!onRequest) break;
+
+      const contentLength = parseInt(headers["content-length"] || "0", 10) || 0;
+      const { body, rest: afterBody } = await readHttpBody(recvReadable, msg.rest, contentLength);
+      rest = afterBody;
+
+      const url = "http://" + (headers["host"] || "localhost") + path;
+      const request = new Request(url, {
+        method: method || "GET",
+        headers,
+        body: body.length ? body : undefined,
+      });
+
+      let response;
+      try {
+        response = await onRequest(request);
+      } catch (e) {
+        response = new Response(`Internal Server Error: ${e && e.message ? e.message : e}`, {
+          status: 500,
+        });
+      }
+      await writeHttpResponse(sendWritable, response);
+
+      if ((headers["connection"] || "").toLowerCase() === "close") break;
+    }
+  } catch (e) {
+    // Best-effort HTTP/WS server: an unexpected error tears the connection
+    // down rather than propagating out of the accept loop.
+  }
+
   sendWritable.drop();
 
   try {
@@ -655,12 +771,21 @@ class WebSocketServer {
   constructor(opts = {}) {
     this._maxPayload = opts.maxPayload;
     this._handlers = {};
+    this._onRequest = null;
     this._sock = null;
     this._acceptStream = null;
     this.port = null;
   }
 
+  // 'connection'/'error' behave like before (fire every registered
+  // listener). 'request' is different on purpose: exactly one handler can
+  // meaningfully produce the Response for a given request, so registering a
+  // second one replaces the first rather than adding a second listener.
   on(event, cb) {
+    if (event === "request") {
+      this._onRequest = cb;
+      return this;
+    }
     (this._handlers[event] || (this._handlers[event] = [])).push(cb);
     return this;
   }
@@ -694,6 +819,7 @@ class WebSocketServer {
         handleConnection(
           clientSock,
           (conn) => this._emit("connection", conn),
+          this._onRequest,
           this._maxPayload,
         ).catch((err) => this._emit("error", err));
       }

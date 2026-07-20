@@ -467,6 +467,48 @@ compliant clients simply don't use it), no `Blob`/`ArrayBuffer`
 `binaryType` switch (binary messages are always `Uint8Array` — there's no
 `Blob` in dwarf).
 
+### Single-port HTTP + WebSocket routing
+
+`WebSocketServer` also doubles as a general router when a host can only
+reach a component on one port (e.g. a TLS-passthrough-by-SNI edge with a
+single backend, unable to split a normal HTTP response path and WebSocket
+upgrades across two ports). Register an `on("request", ...)` handler —
+additionally requires `--polyfill fetch-classes`, for real `Request`/
+`Response` — and any non-upgrade HTTP request is routed there instead of
+being dropped; WS upgrade requests still go through the handshake/frame
+path unchanged, on the very same listening socket:
+
+```js
+export async function run(port) {
+    const server = new WebSocketServer();
+
+    server.on("request", async (request) => {
+        // Wire your own SSR/HTTP handler here - e.g. Nitro/h3's
+        // `toWebHandler(app)` produces exactly this (Request) => Response
+        // shape, so `server.on("request", nitroHandler)` works directly.
+        const url = new URL(request.url);
+        if (url.pathname === "/api/health") return new Response("ok");
+        return new Response("not found", { status: 404 });
+    });
+
+    server.on("connection", (conn) => {
+        conn.on("message", (data) => conn.send(`echo:${data}`));
+    });
+
+    await server.listen(port, "127.0.0.1");
+}
+```
+
+Without a `"request"` handler registered, behavior is unchanged from
+before this existed: a non-upgrade request is dropped. With one, each
+accepted connection runs an ordinary HTTP/1.1 keep-alive loop — multiple
+requests over one connection are supported (real SSR pages need several
+asset fetches), ending either when a request upgrades to a WebSocket (which
+then owns the connection for the rest of its life, handed to
+`"connection"`'s handler), `Connection: close`, or the peer disconnecting.
+Request bodies are read via `Content-Length` only (no chunked
+transfer-encoding, no `Expect: 100-continue`).
+
 ## Polyfills
 
 `TextEncoder`/`TextDecoder` (UTF-8 only) are always available — dwarf's

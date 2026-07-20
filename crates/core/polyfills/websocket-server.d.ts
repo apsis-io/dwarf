@@ -5,6 +5,12 @@
 //
 // `WebSocketServerP3` is the same class as `WebSocketServer` - see
 // console.d.ts's note on the `...P3` naming convention.
+//
+// The `on("request", ...)` general-HTTP-router overload (see README) is
+// declared in fetch-classes.d.ts instead of here, via TS declaration
+// merging - its signature references Request/Response, which only exist
+// when that polyfill is also requested, same reason `fetch`'s own types
+// live there instead of in this always-on file.
 
 interface WebSocketConnection {
   readonly path: string;
@@ -25,7 +31,14 @@ declare class WebSocketServer {
   readonly port: number | null;
   on(event: "connection", cb: (conn: WebSocketConnection) => void): void;
   on(event: "error", cb: (err: unknown) => void): void;
-  /** Binds, listens, and accept-loops forever - await this from a long-lived entrypoint. */
+  /**
+   * Binds, listens, and accept-loops forever - await this from a long-lived
+   * entrypoint. Each accepted connection runs an HTTP/1.1 keep-alive loop:
+   * a WS upgrade request hands the connection to `"connection"`'s handler
+   * for the rest of its life; any other request goes to `"request"`'s
+   * handler if registered (--polyfill fetch-classes), or is otherwise
+   * dropped, unchanged from before this option existed.
+   */
   listen(port?: number, host?: string): Promise<void>;
   /** Stops the accept loop. */
   close(): void;
