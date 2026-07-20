@@ -1,0 +1,16 @@
+package test:borrow-passthrough;
+
+interface probe {
+  resource probe-thing {
+    ping: func() -> string;
+  }
+
+  use-it: func(thing: borrow<probe-thing>) -> string;
+}
+
+world borrow-passthrough-test {
+  import probe;
+  use probe.{probe-thing};
+
+  export receive: async func(thing: borrow<probe-thing>) -> string;
+}

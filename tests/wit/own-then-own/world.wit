@@ -1,0 +1,16 @@
+package test:own-passthrough;
+
+interface probe {
+  resource probe-thing {
+    ping: func() -> string;
+  }
+
+  use-it: func(thing: own<probe-thing>) -> string;
+}
+
+world own-passthrough-test {
+  import probe;
+  use probe.{probe-thing};
+
+  export receive: async func(thing: own<probe-thing>) -> string;
+}

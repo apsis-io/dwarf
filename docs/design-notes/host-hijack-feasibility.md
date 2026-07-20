@@ -1,25 +1,33 @@
 # Feasibility: dwarf-side support for `periapisis:host/hijack`
 
-Status: **scoping + verification + root cause done - the open question is
-answered, and it's good news.** Written to de-risk a possible post-demo-7
-migration away from `WebSocketServer`'s raw-socket HTTP+WS router
+Status: **task-lifetime question resolved (good news); borrow-forwarding
+question reopened (real, confirmed blocker).** Written to de-risk a possible
+post-demo-7 migration away from `WebSocketServer`'s raw-socket HTTP+WS router
 (`crates/core/polyfills/websocket-server.js`, WS-1/WS-1b) toward a
 host-hijack-based single-port answer, per the architecture fork
 `trail-main-cli` flagged during WS-1b (`periapisis:host/hijack`, ADR-0046,
-live in the periapsis repo). The empirical verification step this note
-originally recommended has been run (`tests/task_lifetime.rs`): holding a
-resource across the exporting call's own task settlement does **not** trap
-the guest, it just behaves like the already-documented `setTimeout`
-fire-and-forget caveat (silently abandoned, not resumed). A follow-on root
-cause investigation (`tests/task_persistence_rootcause.rs`) then answered
-the one remaining real question - **is the abandonment a fundamental
-wasmtime/component-model constraint, or something a host can avoid?** It's
-the latter: keeping wasmtime's own concurrent event loop open across calls
-(via `Func::call_concurrent` + a persistent `run_concurrent` scope, instead
-of a fresh `Func::call_async` per call) lets the background continuation
-survive and complete, confirmed for both a plain timer and a real
-resource-backed async op. See "Root cause: it's a host-side API choice, not
-a wasmtime limit" below.
+live in the periapsis repo).
+
+Two separate empirical questions have now been run down:
+
+1. **Task/resource lifetime past `handle()`'s own return**
+   (`tests/task_lifetime.rs`, `tests/task_persistence_rootcause.rs`): holding
+   a resource across the exporting call's own task settlement does **not**
+   trap the guest - it's the already-documented `setTimeout` fire-and-forget
+   caveat, and it's entirely a host-embedding API choice (`call_async` vs
+   `call_concurrent` + a persistent `run_concurrent` scope), not a
+   wasmtime or dwarf-runtime limitation. See "Root cause: it's a host-side
+   API choice, not a wasmtime limit" below - **this part is resolved, no
+   dwarf-side blocker.**
+2. **Passing an export-received resource as a borrow into an import call**
+   (`tests/borrow_passthrough.rs`, `tests/own_then_borrow.rs`,
+   `tests/own_then_own.rs`): this is the *actual* `claim(request:
+   borrow<request>)` shape, and it **traps** - "borrow handles still remain
+   at the end of the call." This reverses this note's original
+   read-by-inspection conclusion that `pop_borrow`'s generic, type-agnostic
+   code "should already work." See "Borrow-forwarding finding: a real,
+   confirmed, general gap" below - **this is a genuine blocker, not
+   host-hijack-specific, and not yet root-caused.**
 
 ## The interface being scoped
 
@@ -60,18 +68,19 @@ already generates and has working, tested coverage for:
 | A `resource` with `async func` methods | `wasi:sockets/types`' `tcp-socket` (`TcpSocket.create(...)`, `await sock.connect(...)`) - `WebSocketServer` itself is built entirely on this pattern |
 | `list<u8>` parameters/returns | Pervasive - WS frame bytes, `wasi:io` stream reads, `getRandomBytes`, etc. |
 | A plain top-level `func` (not `async`) returning `result<T, error-code-like-enum>` | `TcpSocket.create`/`.bind()`/`.getLocalAddress()` - "throws on err, returns `T` directly on ok" convention, confirmed against `tests/wit/sockprobe/probe.js` |
-| A `borrow<T>` parameter on an *imported* function | Untested in isolation, but see below - the underlying mechanism (`pop_borrow`) is shared, type-agnostic machinery, not something built specifically for any one interface |
+| A `borrow<T>` parameter on an *imported* function | **Tested, and it fails** - see "Borrow-forwarding finding" below. This row was originally "untested but should work by inspection"; that read turned out to be wrong. |
 
-The one combination that doesn't have dedicated test coverage yet - and is
-the actual crux of this feasibility question - is:
+The one combination that didn't have dedicated test coverage - and is the
+actual crux of this feasibility question - is:
 
 > A resource received as a parameter of an **exported** function (`request`,
 > from `handle(request)`) gets passed as a **borrowed argument to an
 > imported** function (`claim(request)`).
 
-### Why this should already work
+### Why this looked like it should already work (turned out wrong)
 
-Confirmed by reading `crates/runtime/src/call.rs`'s `pop_borrow`/`pop_own`:
+The original reasoning, from reading `crates/runtime/src/call.rs`'s
+`pop_borrow`/`pop_own`:
 
 ```rust
 fn pop_borrow(&mut self, ty: Resource) -> u32 {
@@ -87,17 +96,20 @@ fn pop_borrow(&mut self, ty: Resource) -> u32 {
 }
 ```
 
-This is the lowering path used for *every* borrowed-resource argument to an
-import call, regardless of which WIT interface declared the resource type or
-where the JS-side value being lowered originally came from. `request` (a
-type from `wasi:http/types`, an *imported* interface from the guest's
-perspective even though the value arrives via an export call) would resolve
-through the `imported_resource_to_handle` branch - the same code path
-already exercised by, e.g., passing a `TcpSocket` instance around. Lifting
-`request` on the way *into* `handle()` and lowering it back out to `claim()`
-are both existing, type-agnostic, already-tested mechanisms; there is no
-`hijack`-specific (or even `wasi:http`-specific) code that would need to be
-written for this to type-check and round-trip correctly at the ABI level.
+This *is* the lowering path used for every borrowed-resource argument to an
+import call, regardless of which WIT interface declared the resource type -
+generic, type-agnostic code, not written for any one interface. What this
+reading missed: genericity at the dwarf-runtime level doesn't guarantee
+correctness at the canonical-ABI level. `imported_resource_to_handle` simply
+returns the resource's existing raw handle number; it does not itself create
+or reclaim any component-model "borrow lend" scoped to *this specific* import
+call. Whatever `wit-dylib`'s generated canon-lower glue does around that
+raw handle (the actual code embedded in the component at build time -
+external to dwarf's own crates, from the `wit-dylib`/`wasm-tools` git
+dependency) is what ultimately failed the check - see the finding below.
+This is exactly the class of thing "reasoning about the code" can't catch:
+the bug isn't in the function signature or the type-agnostic dispatch, it's
+in what a *different* codebase's generated glue does with the value.
 
 ### The one real open question: resource/task lifetime
 
@@ -244,20 +256,82 @@ concrete technical grounding instead of being an opaque necessity: it is, in
 all likelihood, precisely trail keeping a persistent `run_concurrent`/
 `Accessor`-driven event loop open across the component's whole serving
 lifetime (using `call_concurrent` per incoming request) rather than doing a
-fresh `call_async` per request. If that is indeed what `--persistent` mode
-does (trail's own docs already imply as much), **host-hijack's background
-read/write loop pattern is fully viable with dwarf's current runtime as-is -
-no dwarf-runtime change is needed.**
+fresh `call_async` per request. **This specific question (task/resource
+lifetime past `handle()`'s return) is resolved: no dwarf-runtime change is
+needed for it.** It is not, on its own, enough to call host-hijack viable -
+see the next section for why.
 
-**Recommendation, updated:** still don't build the host-hijack integration
-until it's actually prioritized post-demo - this remains scoping, not a
-build decision. But the blocking uncertainty is gone: when the work is
-picked up, the next step is simply confirming (or, if needed, arranging)
-that trail's host embedding calls into the guest via `call_concurrent` +
-a persistent `run_concurrent` scope for any component using this pattern -
-not a dwarf-side investigation or fix. No "fix sketch" is included here
-because there is nothing in dwarf's own runtime crate to fix; the lever is
-entirely in the host's own wasmtime embedding code.
+## Borrow-forwarding finding: a real, confirmed, general gap
+
+The task-lifetime work above answers *one* of the two things this note
+flagged as open. The other - the `pop_borrow`/`imported_resource_to_handle`
+reasoning in "Why this looked like it should already work" - was tested
+directly and **fails**. Three differential tests isolate it precisely:
+
+| Test | Export param | Import param | Result |
+|---|---|---|---|
+| `tests/borrow_passthrough.rs` | `borrow<probe-thing>` | `borrow<probe-thing>` | **Traps**: "borrow handles still remain at the end of the call" |
+| `tests/own_then_borrow.rs` | `own<probe-thing>` | `borrow<probe-thing>` | **Traps**, identically |
+| `tests/own_then_own.rs` | `own<probe-thing>` | `own<probe-thing>` | Succeeds |
+
+All three use a minimal host-defined resource (`probe-thing`, registered via
+`Linker::instance(...).resource(...)`) instead of `wasi:http/types`' actual
+`request` - the concern doesn't depend on which interface declares the
+resource type, and this avoids needing the real (unavailable-here)
+`periapisis:host/hijack`/`wasi:http` machinery.
+
+**What this isolates:** the trap has nothing to do with how the export
+received the resource (own or borrow both fail identically) - it's
+specifically about lowering a **borrow** argument for an **import call**,
+for a resource the guest didn't just construct itself in that same call. And
+this is not host-hijack-specific: grepping dwarf's entire existing test
+suite turns up **zero** tests that call any import function with a
+`borrow<T>` parameter for a host-defined resource (`wasi:sockets`,
+`wasi:filesystem`, `wasi:io`, and `wasi:http`'s own vendored WIT all declare
+several - `is-same-object`, `network-error-code`, `splice`, etc. - but none
+of dwarf's tests exercise any of them). This appears to be a
+previously-undiscovered gap in `pop_borrow`'s interaction with the
+canonical-ABI lowering that any of dwarf's *existing* polyfills could in
+principle hit too, if they ever needed this shape - it just happens that
+none currently do.
+
+**Root cause: not yet pinned down, and only partially in dwarf's own code.**
+`crates/runtime/src/call.rs`'s `pop_borrow` (dwarf's own code) returns the
+resource's existing raw handle number for the imported-resource branch; it
+does not itself create or reclaim any scoped "borrow lend" for this specific
+import call. The actual canonical-ABI lowering/reclaim logic around that raw
+handle is generated by `wit-dylib`'s bindgen (`crates/wit-dylib/src/
+bindgen.rs` in the `wit-dylib`/`wasm-tools` git dependency - see
+`Cargo.lock`'s `wit-dylib-ffi` source, external to dwarf's own crates) and
+embedded into the component at build time; the trap's backtrace bottoms out
+in `wit_dylib_ffi::types::ImportFunction::call_import_sync`, in that
+generated glue, not in dwarf-runtime's own code. Pinning the *exact*
+mechanism (is `pop_borrow` supposed to be doing something extra to properly
+scope the borrow to this call, or is the generated canon-lower glue itself
+missing a reclaim step) needs tracing that external codegen - out of scope
+for this verification pass, which only needed to establish *whether* this
+works, not exactly *why* it doesn't.
+
+**What this means for host-hijack:** `claim(request: borrow<request>)` is
+*exactly* this shape - `request` arrives via `handle(request)` (as either
+`own` or `borrow` depending on `wasi:http`'s actual signature, per the tests
+above it doesn't matter which) and gets forwarded into `claim()` as
+`borrow<request>`. **This traps as things stand today.** Unlike the
+task-lifetime question, this is not resolved by a host-embedding choice -
+it's either a dwarf-runtime bug, a `wit-dylib` upstream bug, or a
+genuine canonical-ABI subtlety this shape runs into; some of that needs
+fixing (in dwarf's own `call.rs`, or upstream in `wit-dylib`/`wasm-tools`,
+or both) before `claim()` can be called this way at all.
+
+**Recommendation, updated again:** don't start real host-hijack bindgen work
+yet - the task-lifetime gate is clear, but this borrow-forwarding gate is
+not. Before any implementation: either (a) root-cause and fix this in
+whichever codebase actually owns it (dwarf's `call.rs`, or an upstream
+`wit-dylib`/`wasm-tools` issue/PR), or (b) confirm whether `claim` could be
+redesigned to take `own<request>` instead of `borrow<request>` (sidestepping
+the broken path entirely, since `own→own` was confirmed to work) - a
+protocol-level question for whoever owns the `periapisis:host/hijack`
+interface, not a dwarf question. Either path is real work, not scoping.
 
 ## Rough integration shape
 
@@ -292,12 +366,14 @@ wanted for parity with today's `WebSocketServer` class shape.
 ## What this note is *not* saying
 
 This isn't a recommendation to build it now, or to deprecate WS-1/WS-1b -
-per lead's read (which matches the reasoning above), WS-1/WS-1b ships and
-stays valuable as a guest-side fallback for hosts without the hijack
-primitive; not every host will have `periapisis:host/hijack` available.
-Verification and root-cause investigation together found no dwarf-side
-blocker and no fundamental wasmtime limit - the task-lifetime risk this note
-opened with is resolved to a known, well-understood host-embedding
-requirement (`call_concurrent` + a persistent `run_concurrent` scope), not
-an open unknown. That still doesn't make this a green light to build - it
-remains scoping, prioritized post-demo, same as when this note started.
+WS-1/WS-1b ships and stays valuable as a guest-side fallback for hosts
+without the hijack primitive; not every host will have
+`periapisis:host/hijack` available. Nor is it a claim that host-hijack is
+dead - the borrow-forwarding trap is real but narrow (isolated to one
+specific ABI shape) and has at least one plausible way around it (redesign
+`claim` to take `own<request>`) even before any dwarf/wit-dylib fix lands.
+But it is a real, confirmed blocker as things stand today - this is not yet
+a green light to build, and is a step *less* ready than "no known blocker"
+would have been. The task-lifetime half of the original risk is resolved
+cleanly; the borrow-forwarding half is a genuine open problem that needs
+real engineering (in dwarf, upstream, or both) before implementation starts.
