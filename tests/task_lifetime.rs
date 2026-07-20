@@ -14,32 +14,36 @@
 //! interface, this reproduces the general mechanism with an already-real,
 //! already-supported resource (`wasi:sockets`' `tcp-socket`) and a plain
 //! unawaited async IIFE standing in for "the background read/write loop" -
-//! the concern being tested (does a resource-holding continuation survive
-//! past its originating export's return) doesn't depend on which specific
-//! resource type is involved.
+//! the concern being tested doesn't depend on which specific resource type
+//! is involved.
 //!
-//! **Finding: it's worse than "silently cancelled".** A bare, unawaited
-//! continuation with no resource involved (`test_timer_only_continuation_is_silently_cancelled`)
-//! is simply never resumed once its exporting task settles - the same
-//! already-documented behavior as `setTimeout`/console fire-and-forget writes
-//! (see `generate_timers`'s doc comment). But the moment a continuation
-//! *holds a resource* across that same boundary, the exporting call itself
-//! traps the guest instead - and this happens even when the resource is
-//! never used with an in-flight async operation at settle time
-//! (`test_holding_a_resource_across_task_settlement_traps_even_without_pending_async_use`).
-//! The full `wasm backtrace` for both trapping cases bottoms out in
-//! `dwarf_runtime::bindings::build_async_exports`'s `then_cb`/`catch_cb` -
-//! the exact machinery that lowers the *exporting* async function's own
-//! settled promise into its declared WIT result - even though that
-//! function's literal return value (a plain string) should lower trivially.
-//! That strongly suggests the panic isn't about the exporting call's own
-//! declared return at all, but some form of re-entrancy into that same
-//! lowering path triggered by tearing down a still-referenced resource when
-//! the task settles. Pinning the exact trigger (e.g. an async resource
-//! destructor's completion looping back through the export-result boundary)
-//! would need tracing dwarf-runtime's resource-table/task teardown wiring -
-//! out of scope for this synthetic repro, which only needed to establish
-//! *whether* this is safe, not exactly *why* it isn't.
+//! **Finding: no new blocker, no trap - it's the already-documented
+//! setTimeout/fire-and-forget caveat, generalized.** All three cases below
+//! behave identically: the exporting call itself always completes cleanly
+//! (never traps), and a background continuation with a still-pending async
+//! operation at settle time (a socket `connect()`, or merely a `setTimeout`)
+//! is silently abandoned rather than resumed later - matching the existing
+//! documented behavior for `setTimeout`/console fire-and-forget writes (see
+//! `generate_timers`'s doc comment), just not previously confirmed for
+//! resource-backed async import calls specifically. There's nothing
+//! resource-specific here: holding a resource reference across the boundary
+//! is not itself unsafe, it just doesn't extend that continuation's
+//! lifetime any more than a plain timer would. (An earlier version of this
+//! file reported a "trap" for the resource cases - that was a bug in the
+//! test script itself, referencing `TcpSocket` as a bare global instead of
+//! importing it from `"wasi:sockets/types@0.3.0"` as the WIT bindings
+//! actually require, which threw an uncaught `ReferenceError` that a
+//! `-> string`-only export (no error channel at all) can never represent,
+//! panicking on lowering. Caught only once the guest's own stderr was
+//! captured and inspected directly - inferring the cause from wasm-backtrace
+//! symbol names alone was the mistake.)
+//!
+//! What this means for host-hijack: dwarf's generic codegen has no
+//! resource/task-lifetime blocker for the interface shape itself. The real
+//! open question is exactly the one trail already flagged - whether
+//! `--persistent` trail mode keeps the whole task (not just the JS
+//! continuation) alive across `handle()`'s own return - which is a host-side
+//! question this synthetic repro can't answer, not a new dwarf-side risk.
 
 mod common;
 
@@ -50,11 +54,12 @@ use wasmtime::component::Val;
 
 use common::TestCase;
 
-/// A bare unawaited continuation with nothing resource-like in it: cancelled
-/// silently (no trap) the moment its exporting task settles, matching the
-/// already-documented setTimeout/console fire-and-forget caveat.
+/// A bare unawaited continuation with nothing resource-like in it: the
+/// exporting call completes cleanly, and the continuation is simply never
+/// resumed - the already-documented setTimeout/console fire-and-forget
+/// caveat.
 #[tokio::test]
-async fn test_timer_only_continuation_is_silently_cancelled() {
+async fn test_timer_only_continuation_is_silently_abandoned() {
     let wit_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/wit/task-lifetime");
 
     let mut inst = TestCase::new()
@@ -107,7 +112,7 @@ async fn test_timer_only_continuation_is_silently_cancelled() {
     assert_eq!(
         check_results[0],
         Val::String("not-run".into()),
-        "a bare unawaited continuation is expected to be cancelled when its \
+        "a bare unawaited continuation is expected to be abandoned when its \
          exporting task settles - if this ever starts failing (the \
          continuation completes), that's a real change in dwarf's task \
          lifetime semantics worth its own investigation, not a bug in this \
@@ -117,9 +122,10 @@ async fn test_timer_only_continuation_is_silently_cancelled() {
 
 /// The shape host-hijack actually needs: a resource with a still-pending
 /// async operation on it (`sock.connect()`) when the exporting call settles.
-/// Traps the guest rather than being silently cancelled.
+/// Behaves identically to the timer-only case above - no trap, but the
+/// continuation is abandoned rather than resumed.
 #[tokio::test]
-async fn test_holding_a_resource_with_a_pending_async_operation_traps() {
+async fn test_holding_a_resource_with_a_pending_async_operation_is_also_silently_abandoned() {
     let wit_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/wit/task-lifetime");
 
     let mut inst = TestCase::new()
@@ -127,6 +133,8 @@ async fn test_holding_a_resource_with_a_pending_async_operation_traps() {
         .world("task-lifetime-test")
         .script(
             r#"
+            import { TcpSocket } from "wasi:sockets/types@0.3.0";
+
             let sideEffect = "not-run";
 
             export async function run() {
@@ -163,36 +171,47 @@ async fn test_holding_a_resource_with_a_pending_async_operation_traps() {
 
     let (instance, store) = inst.parts();
     let run_func = instance.get_func(&mut *store, "run").expect("run export");
+    let check_func = instance
+        .get_func(&mut *store, "check")
+        .expect("check export");
 
     let mut run_results = [Val::String(String::new())];
-    let run_result = run_func
+    run_func
         .call_async(&mut *store, &[], &mut run_results)
-        .await;
+        .await
+        .expect(
+            "run() should not trap while a background continuation holds a resource with a \
+             pending async op on it",
+        );
+    assert_eq!(run_results[0], Val::String("run-returned".into()));
 
-    assert!(
-        run_result.is_err(),
-        "expected run() to trap the guest when it settles while a background \
-         continuation still has an in-flight async operation on a resource \
-         it holds - if this ever starts returning Ok, that's a real (and \
-         very welcome) change in dwarf's resource/task lifetime semantics, \
-         worth revisiting docs/design-notes/host-hijack-feasibility.md over"
-    );
-    let message = format!("{:#}", run_result.unwrap_err());
-    assert!(
-        message.contains("unreachable"),
-        "expected a wasm `unreachable` trap specifically, got: {message}"
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let mut check_results = [Val::String(String::new())];
+    check_func
+        .call_async(&mut *store, &[], &mut check_results)
+        .await
+        .expect("check should complete without trapping");
+    assert_eq!(
+        check_results[0],
+        Val::String("not-run".into()),
+        "a resource-holding continuation with a pending async op is expected \
+         to be abandoned exactly like the plain-timer case above, not \
+         resumed later and not trapped - if this ever starts failing, \
+         that's a real change in dwarf's task lifetime semantics worth its \
+         own investigation, not a bug in this test"
     );
 }
 
-/// Narrows the finding above down further: does the trap require an
+/// Narrows the finding above down further: does abandonment require an
 /// in-flight *async* resource operation specifically, or does merely
 /// *holding a reference* to a resource across the task-settlement boundary
-/// already trigger it, even with a plain synchronous method call and no
+/// behave the same way even with a plain synchronous method call and no
 /// async resource operation ever in flight? Here the background
 /// continuation only touches a resource's synchronous method after a timer
 /// elapses.
 #[tokio::test]
-async fn test_holding_a_resource_across_task_settlement_traps_even_without_pending_async_use() {
+async fn test_holding_a_resource_across_task_settlement_does_not_trap_either() {
     let wit_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/wit/task-lifetime");
 
     let mut inst = TestCase::new()
@@ -200,6 +219,8 @@ async fn test_holding_a_resource_across_task_settlement_traps_even_without_pendi
         .world("task-lifetime-test")
         .script(
             r#"
+            import { TcpSocket } from "wasi:sockets/types@0.3.0";
+
             let sideEffect = "not-run";
 
             export async function run() {
@@ -229,25 +250,31 @@ async fn test_holding_a_resource_across_task_settlement_traps_even_without_pendi
 
     let (instance, store) = inst.parts();
     let run_func = instance.get_func(&mut *store, "run").expect("run export");
+    let check_func = instance
+        .get_func(&mut *store, "check")
+        .expect("check export");
 
     let mut run_results = [Val::String(String::new())];
-    let run_result = run_func
+    run_func
         .call_async(&mut *store, &[], &mut run_results)
-        .await;
+        .await
+        .expect("run() should not trap merely for holding a resource across task settlement");
+    assert_eq!(run_results[0], Val::String("run-returned".into()));
 
-    assert!(
-        run_result.is_err(),
-        "expected run() to trap even though the resource has no pending \
-         async operation at settle time - this is the key finding: it's not \
-         about abandoning an in-flight async op, merely holding a resource \
-         reference across the task-settlement boundary is already unsafe. \
-         If this ever starts returning Ok, that's a real (and very welcome) \
-         change in dwarf's resource/task lifetime semantics, worth revisiting \
-         docs/design-notes/host-hijack-feasibility.md over"
-    );
-    let message = format!("{:#}", run_result.unwrap_err());
-    assert!(
-        message.contains("unreachable"),
-        "expected a wasm `unreachable` trap specifically, got: {message}"
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let mut check_results = [Val::String(String::new())];
+    check_func
+        .call_async(&mut *store, &[], &mut check_results)
+        .await
+        .expect("check should complete without trapping");
+    assert_eq!(
+        check_results[0],
+        Val::String("not-run".into()),
+        "holding a resource with no pending async op on it is expected to be \
+         abandoned exactly like the other two cases - not resumed, and no \
+         trap - if this ever starts failing, that's a real change in \
+         dwarf's task lifetime semantics worth its own investigation, not a \
+         bug in this test"
     );
 }

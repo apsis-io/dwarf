@@ -1,16 +1,17 @@
 # Feasibility: dwarf-side support for `periapisis:host/hijack`
 
-Status: **scoping + verification done - result is a blocker, not a green light.**
-Written to de-risk a possible post-demo-7 migration away from
-`WebSocketServer`'s raw-socket HTTP+WS router
-(`crates/core/polyfills/websocket-server.js`, WS-1/WS-1b) toward a
-host-hijack-based single-port answer, per the architecture fork
-`trail-main-cli` flagged during WS-1b (`periapisis:host/hijack`, ADR-0046, live
-in the periapsis repo). The empirical verification step this note originally
-recommended (see below) has since been run (`tests/task_lifetime.rs`) and
-found a real problem: **holding a resource across the exporting call's own
-task settlement traps the guest**, not just a milder "gets silently
-cancelled" as originally hypothesized. See "Verification result" below.
+Status: **scoping + verification done - no new blocker found.** Written to
+de-risk a possible post-demo-7 migration away from `WebSocketServer`'s
+raw-socket HTTP+WS router (`crates/core/polyfills/websocket-server.js`,
+WS-1/WS-1b) toward a host-hijack-based single-port answer, per the
+architecture fork `trail-main-cli` flagged during WS-1b
+(`periapisis:host/hijack`, ADR-0046, live in the periapsis repo). The
+empirical verification step this note originally recommended (see below) has
+since been run (`tests/task_lifetime.rs`): holding a resource across the
+exporting call's own task settlement does **not** trap the guest - it
+behaves exactly like the already-documented `setTimeout` fire-and-forget
+caveat (silently abandoned, not resumed, no trap). See "Verification result"
+below.
 
 ## The interface being scoped
 
@@ -123,72 +124,67 @@ works if the guest holds onto it (e.g. via a stored reference used in a
 persistent Store" shape without needing a real trail/perigeos deployment to
 test it. This is a half-day-scale task, not a new feature.
 
-## Verification result: holding a resource across task settlement traps
+## Verification result: no trap, just the existing fire-and-forget caveat
 
 Ran as `tests/task_lifetime.rs` on `feature/host-hijack-lifetime-verification`,
 using `wasi:sockets`' `tcp-socket` as a stand-in resource (no dependency on the
 real, unavailable-here `periapisis:host/hijack` package - the concern being
-tested doesn't depend on which resource type is involved). Three cases:
+tested doesn't depend on which resource type is involved). Three cases, all
+behaving identically:
 
 1. **A bare unawaited continuation with no resource at all** (just an
    unawaited `setTimeout`): the exporting call (`run()`) completes cleanly,
-   but the continuation is simply never resumed - `check()` afterward shows
-   its side effect never ran. This matches the already-documented
+   and the continuation is simply never resumed - `check()` afterward shows
+   its side effect never ran. This is the already-documented
    `setTimeout`/console fire-and-forget caveat (`generate_timers`'s doc
-   comment): nothing new here, and no trap.
+   comment).
 2. **A resource with a still-pending async operation on it**
    (`await sock.connect(...)`, never awaited by `run()` itself) when the
-   exporting call settles: **`run()` itself traps the guest** (a wasm
-   `unreachable` instruction) instead of completing. This was the originally
-   hypothesized risk - confirmed, but worse than expected (a hard trap, not a
-   silent cancellation).
+   exporting call settles: behaves identically to case 1 - `run()` completes
+   cleanly, and the continuation (including its `connect()`/`catch`) is
+   simply never resumed. No trap.
 3. **A resource merely held across the boundary, with no pending async
    operation on it at all** - the background continuation only calls a
    *synchronous* method (`sock.getLocalAddress()`) on the resource, after its
-   own internal timer, well after `run()` would have settled: **this also
-   traps**, identically. This rules out the narrower "abandoning an in-flight
-   async op" theory - merely holding a live resource reference across the
-   task-settlement boundary is already unsafe, whether or not anything async
-   is in flight on it at settle time.
+   own internal timer: also behaves identically - no trap, continuation
+   abandoned.
 
-The full `wasm backtrace` for both trapping cases bottoms out in
-`dwarf_runtime::bindings::build_async_exports`'s `then_cb`/`catch_cb` - the
-exact machinery that lowers the *exporting* function's own settled promise
-into its declared WIT result (`describe_lower_failure`'s callers in
-`crates/runtime/src/bindings.rs`) - even though `run()`'s literal return value
-in every case (a plain string) should lower trivially and never legitimately
-reach that failure path. That strongly suggests the panic isn't about the
-exporting call's own declared return at all, but some form of re-entrancy
-into that same lowering path triggered by tearing down a still-referenced
-resource when the task settles (e.g. an async resource destructor's own
-completion looping back through the export-result boundary). Pinning the
-*exact* trigger would need tracing dwarf-runtime's resource-table/task
-teardown wiring - out of scope for this repro, which only needed to establish
-*whether* this is safe, not exactly *why* it isn't.
+**Correction to an earlier version of this section:** this note previously
+reported that cases 2 and 3 *trapped* the guest. That was wrong, and the
+error was in the test script, not dwarf: it referenced `TcpSocket` as a bare
+global (`const sock = TcpSocket.create(...)`) instead of importing it from
+the WIT-generated module, per the same pattern already used by
+`tests/wit/sockprobe/probe.js` (`import { TcpSocket } from
+"wasi:sockets/types@0.3.0"`). Without the import, `TcpSocket` is undefined,
+so `run()` threw a plain, uncaught `ReferenceError` - and since this test
+world's `run()` is declared `-> string` (no error type in its WIT signature
+at all), *any* exception it throws has no way to be represented, so lowering
+it panics (`describe_lower_failure`, `crates/runtime/src/bindings.rs`) -
+correct, expected behavior for a mis-shaped export, not a resource/task
+lifetime bug. This was only caught by actually capturing and reading the
+guest's own stderr (`AsyncComponentInstance::stderr_bytes()`) - the original
+conclusion was inferred from wasm-backtrace *symbol names* alone (both cases
+happened to panic from the same `then_cb`/`catch_cb` code path), which look
+identical whether the export's own code threw or whether something else did.
+Lesson for next time doing this kind of empirical verification: capture and
+print the guest's stderr before drawing conclusions from a trap's backtrace
+shape - the backtrace tells you *where* the panic macro fired, not *why*.
 
-**What this means for host-hijack:** its own stated need for trail's
-`--persistent` mode isn't an incidental detail - it's load-bearing. A
-`hijacked-connection` read/write loop that outlives `handle()`'s own return is
-*exactly* the shape that traps here. This is not something dwarf's JS/guest
-code, or dwarf's codegen, can work around on its own: the fix (if there is
-one within reach) has to come from the host side genuinely keeping the
-*whole task* (and its resource table) alive across that boundary - not merely
-letting the JS continuation's microtask keep running, which the "silently
-cancelled" case above shows already isn't sufficient by itself. Whether
-trail's `--persistent` mode actually does this (as opposed to also hitting
-this same trap once wired to dwarf) is now **the** open question, and it can
-only be answered with a real trail-hosted repro (using its actual
-`accessor.spawn()`-equivalent mechanism) - not with anything further a
-bare-dwarf test harness can prove.
+**What this means for host-hijack:** no *new* risk found. The only real open
+question is exactly the one trail already flagged before this note existed -
+does `--persistent` trail mode keep the whole task (not just the JS
+continuation) alive across `handle()`'s own return? This synthetic repro
+can't answer that (it has no `--persistent`-equivalent to test against); it
+only rules out a *dwarf-side* trap as an additional obstacle on top of that
+already-known requirement. That's still a host-side (trail's) question to
+answer, and it's post-demo, not urgent.
 
-**Recommendation, revised:** do not build the host-hijack integration yet.
-Before investing in it, get (or run) a minimal trail-hosted repro of a
-resource genuinely surviving past its exporting call's task settlement under
-`--persistent` mode. If that repro also traps, host-hijack's intended usage
-pattern is fundamentally incompatible with dwarf's current resource/task
-lifecycle and would need dwarf-runtime changes (not just bindgen) before it's
-viable at all - a materially bigger undertaking than this note originally
-scoped.
+**Recommendation, unchanged from before verification:** don't build the
+host-hijack integration yet - not because of a newly-found blocker, but
+because it was never more than post-demo scoping. When `trail-main-cli`/lead
+want to revisit it, the next step is a real trail-hosted repro of a resource
+surviving past its exporting call's task settlement under `--persistent`
+mode; dwarf's own codegen has no known obstacle to contribute at that point.
 
 ## If a way past the lifetime problem is found: rough integration shape
 
@@ -211,22 +207,19 @@ Not a rewrite - **most of WS-1/WS-1b's existing code is directly reusable**:
   dispatch replaces `WebSocketServer.listen()`'s `TcpSocket`/accept-stream
   loop entirely.
 
-Effort estimate, **conditional on the task-lifetime problem above being
-resolved on the host side** (see "Verification result"): small-to-medium. The
-RFC 6455 protocol logic (the hard, security-sensitive part, per WS-1b) is
-done and reusable as-is; the new work is a thinner transport/handshake
-adapter plus whatever ergonomic wrapper (if any) is wanted for parity with
-today's `WebSocketServer` class shape. That estimate no longer covers any
-dwarf-runtime-side lifetime fix, should one turn out to be needed - that
-would be separate, unscoped work.
+Effort estimate, **conditional on trail's `--persistent` mode genuinely
+keeping the task alive across settlement** (see "Verification result"):
+small-to-medium. The RFC 6455 protocol logic (the hard, security-sensitive
+part, per WS-1b) is done and reusable as-is; the new work is a thinner
+transport/handshake adapter plus whatever ergonomic wrapper (if any) is
+wanted for parity with today's `WebSocketServer` class shape.
 
 ## What this note is *not* saying
 
 This isn't a recommendation to build it now, or to deprecate WS-1/WS-1b -
 per lead's read (which matches the reasoning above), WS-1/WS-1b ships and
 stays valuable as a guest-side fallback for hosts without the hijack
-primitive; not every host will have `periapisis:host/hijack` available. It's
-also not a claim that host-hijack is dead - the task-lifetime trap found here
-may well be a non-issue under trail's real `--persistent` mode (which this
-note's synthetic repro cannot exercise); that's the next thing to check, on
-trail's side, before any dwarf-side implementation work starts.
+primitive; not every host will have `periapisis:host/hijack` available.
+Verification found no dwarf-side blocker, but that doesn't make this a green
+light either - the host-side `--persistent` question is still open, and
+this remains scoping, not a build decision.
