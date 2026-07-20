@@ -1,4 +1,4 @@
-import random from "wasi:random/random@0.2.12";
+import random from "wasi:random/random@0.3.0";
 
 // Test calling WASI imports
 export function getRandomU64() {
