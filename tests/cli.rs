@@ -2,6 +2,7 @@
 mod common;
 
 use std::fs;
+use std::path::PathBuf;
 
 use predicates::prelude::*;
 use tempfile::TempDir;
@@ -456,4 +457,93 @@ fn test_cli_minify() {
         inst.call1("greet", &[Val::String("World".into())]),
         Val::String("Hello, World!".into()),
     );
+}
+
+/// Builds with `--emit-types <dir>`, using an ABSOLUTE path for the types
+/// output directory - `--emit-types .` would resolve "." against the test
+/// binary's own process cwd (the workspace root), not the temp dir, since
+/// `assert_cmd::Command` doesn't sandbox `current_dir` - confirmed the hard
+/// way: that mistake let a real test run overwrite dwarf's own committed
+/// `crates/core/polyfills/*.d.ts` source files with `jco types`' mangled
+/// round-trip output (WIT has no optional-parameter syntax, so `init?: Foo`
+/// came back as `init: Foo | null`).
+fn run_cli_build_with_emit_types(wit: &str, js: &str, extra_args: &[&str]) -> (PathBuf, TempDir) {
+    let dir = TempDir::new().unwrap();
+    let types_dir = dir.path().join("types");
+    fs::create_dir(&types_dir).unwrap();
+
+    let mut args: Vec<&str> = extra_args.to_vec();
+    args.push("--emit-types");
+    let types_dir_str = types_dir.to_str().unwrap();
+    args.push(types_dir_str);
+
+    let wit_path = dir.path().join("test.wit");
+    fs::write(&wit_path, wit).unwrap();
+    let js_path = dir.path().join("test.js");
+    fs::write(&js_path, js).unwrap();
+    let output = dir.path().join("output.wasm");
+
+    let mut cmd = dwarf_cmd();
+    cmd.arg("--wit")
+        .arg(&wit_path)
+        .arg("--js")
+        .arg(&js_path)
+        .arg("--output")
+        .arg(&output);
+    for arg in &args {
+        cmd.arg(arg);
+    }
+
+    cmd.assert().success();
+    (types_dir, dir)
+}
+
+#[test]
+fn test_cli_emit_types_includes_always_on_globals_and_p3_aliases() {
+    let (types_dir, _dir) = run_cli_build_with_emit_types(
+        "package test:hello;\nworld hello { export add: func(a: u32, b: u32) -> u32; }",
+        "export function add(a, b) { return a + b; }",
+        &[],
+    );
+
+    let globals = fs::read_to_string(types_dir.join("globals.d.ts"))
+        .expect("--emit-types should write globals.d.ts");
+
+    for name in [
+        "declare const console: Console;",
+        "declare const consoleP3: Console;",
+        "declare const process: Process;",
+        "declare const processP3: Process;",
+        "declare class WebSocketServer {",
+        "declare const WebSocketServerP3: typeof WebSocketServer;",
+        "declare function setTimeoutP3(",
+        "declare function setIntervalP3(",
+        "declare function clearTimeoutP3(",
+        "declare function clearIntervalP3(",
+        "getRandomValuesP3<T extends ArrayBufferView>(typedArray: T): T;",
+    ] {
+        assert!(
+            globals.contains(name),
+            "globals.d.ts missing `{name}`:\n{globals}"
+        );
+    }
+}
+
+#[test]
+fn test_cli_emit_types_fetch_classes_includes_fetch_p3() {
+    let (types_dir, _dir) = run_cli_build_with_emit_types(
+        "package test:hello;\nworld hello { export add: func(a: u32, b: u32) -> u32; }",
+        "export function add(a, b) { return a + b; }",
+        &["--polyfill", "fetch-classes"],
+    );
+
+    let globals = fs::read_to_string(types_dir.join("globals.d.ts"))
+        .expect("--emit-types should write globals.d.ts");
+
+    assert!(globals.contains(
+        "declare function fetch(input: string | Request, init?: RequestInit): Promise<Response>;"
+    ));
+    assert!(globals.contains(
+        "declare function fetchP3(input: string | Request, init?: RequestInit): Promise<Response>;"
+    ));
 }

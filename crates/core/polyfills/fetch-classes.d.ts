@@ -88,4 +88,9 @@ declare class DOMException extends Error {
 // Requires importing wasi:http/client@0.3.x - throws a clear error
 // otherwise. Single-read response body (bodies larger than 64KiB are
 // truncated - see generate_fetch's doc comment for why).
+//
+// `fetchP3` is the same function as `fetch` - see console.d.ts's note on
+// the `...P3` naming convention (README's "Version-pinned `...P3` names"
+// section) for why it exists alongside the plain name.
 declare function fetch(input: string | Request, init?: RequestInit): Promise<Response>;
+declare function fetchP3(input: string | Request, init?: RequestInit): Promise<Response>;

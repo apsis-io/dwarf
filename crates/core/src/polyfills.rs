@@ -134,13 +134,24 @@ pub const POLYFILLS: &[Polyfill] = &[
 ];
 
 /// `.d.ts` for globals dwarf always provides, regardless of `--polyfill` -
-/// `console`/`process` (WASI-backed, wired automatically) and
-/// `TextEncoder`/`TextDecoder` (no WIT dependency, foundational). Paired with
-/// their on-disk filename so `load_override` can find a dev override.
+/// `console`/`process`/`WebSocketServer` (WASI-backed, wired automatically)
+/// and `TextEncoder`/`TextDecoder` (no WIT dependency, foundational). Paired
+/// with their on-disk filename so `load_override` can find a dev override.
+/// `fetch`/`fetchP3`'s types live in `fetch-classes.d.ts` instead (gated
+/// behind `--polyfill fetch-classes`), not here - its signature references
+/// `Request`/`Response`, which only exist when that polyfill is requested;
+/// `WebSocketServer`'s signature has no such cross-dependency (needing
+/// `--polyfill webcrypto` is a runtime requirement of `.listen()`, not
+/// something its type signature references), so it's always-on like
+/// `console`/`process`.
 const ALWAYS_ON_DTS: &[(&str, &str)] = &[
     ("builtins.d.ts", include_str!("../polyfills/builtins.d.ts")),
     ("console.d.ts", include_str!("../polyfills/console.d.ts")),
     ("process.d.ts", include_str!("../polyfills/process.d.ts")),
+    (
+        "websocket-server.d.ts",
+        include_str!("../polyfills/websocket-server.d.ts"),
+    ),
 ];
 
 fn find(name: &str) -> Result<&'static Polyfill> {
