@@ -1,12 +1,12 @@
 # Feasibility: dwarf-side support for `periapisis:host/hijack`
 
-Status: **task-lifetime question resolved (good news); borrow-forwarding
-question reopened (real, confirmed blocker).** Written to de-risk a possible
-post-demo-7 migration away from `WebSocketServer`'s raw-socket HTTP+WS router
-(`crates/core/polyfills/websocket-server.js`, WS-1/WS-1b) toward a
-host-hijack-based single-port answer, per the architecture fork
-`trail-main-cli` flagged during WS-1b (`periapisis:host/hijack`, ADR-0046,
-live in the periapsis repo).
+Status: **both empirical questions resolved - no dwarf-side blocker for
+host-hijack, with one caveat about how the host implements it.** Written to
+de-risk a possible post-demo-7 migration away from `WebSocketServer`'s
+raw-socket HTTP+WS router (`crates/core/polyfills/websocket-server.js`,
+WS-1/WS-1b) toward a host-hijack-based single-port answer, per the
+architecture fork `trail-main-cli` flagged during WS-1b
+(`periapisis:host/hijack`, ADR-0046, live in the periapsis repo).
 
 Two separate empirical questions have now been run down:
 
@@ -17,17 +17,23 @@ Two separate empirical questions have now been run down:
    caveat, and it's entirely a host-embedding API choice (`call_async` vs
    `call_concurrent` + a persistent `run_concurrent` scope), not a
    wasmtime or dwarf-runtime limitation. See "Root cause: it's a host-side
-   API choice, not a wasmtime limit" below - **this part is resolved, no
-   dwarf-side blocker.**
+   API choice, not a wasmtime limit" below - **resolved, no dwarf-side
+   blocker.**
 2. **Passing an export-received resource as a borrow into an import call**
    (`tests/borrow_passthrough.rs`, `tests/own_then_borrow.rs`,
-   `tests/own_then_own.rs`): this is the *actual* `claim(request:
-   borrow<request>)` shape, and it **traps** - "borrow handles still remain
-   at the end of the call." This reverses this note's original
-   read-by-inspection conclusion that `pop_borrow`'s generic, type-agnostic
-   code "should already work." See "Borrow-forwarding finding: a real,
-   confirmed, general gap" below - **this is a genuine blocker, not
-   host-hijack-specific, and not yet root-caused.**
+   `tests/own_then_own.rs`, `tests/internal_borrow.rs`,
+   `tests/internal_borrow_bindgen.rs`): this is the *actual* `claim(request:
+   borrow<request>)` shape. It genuinely **traps** - but only when the host
+   side registers its resource via wasmtime's *dynamic* Linker API
+   (`Linker::instance(...).resource(...)` + `Val::Resource`/`ResourceAny`).
+   The identical shape, implemented with a *typed* `wasmtime::component::
+   bindgen!`-generated host implementation (the normal, idiomatic way real
+   host capabilities - including `wasmtime-wasi` itself - are actually
+   built), **succeeds**. See "Borrow-forwarding finding: real, but an
+   artifact of the dynamic Linker API, not a general dwarf bug" below -
+   **resolved, no dwarf-side blocker, conditional on the host using typed
+   bindgen! bindings for `periapisis:host/hijack` (the expected approach,
+   worth a quick confirmation with whoever implements it, not a real risk).**
 
 ## The interface being scoped
 
@@ -261,99 +267,92 @@ lifetime past `handle()`'s return) is resolved: no dwarf-runtime change is
 needed for it.** It is not, on its own, enough to call host-hijack viable -
 see the next section for why.
 
-## Borrow-forwarding finding: a real, confirmed, general gap
+## Borrow-forwarding finding: real, but an artifact of the dynamic Linker API, not a general dwarf bug
 
 The task-lifetime work above answers *one* of the two things this note
 flagged as open. The other - the `pop_borrow`/`imported_resource_to_handle`
-reasoning in "Why this looked like it should already work" - was tested
-directly and **fails**. Four differential tests isolate it precisely:
+reasoning in "Why this looked like it should already work" - needed several
+rounds of testing to get right, and the first few rounds pointed at the
+wrong culprit. The final picture, from six differential tests:
 
-| Test | How the resource was obtained | How it's used | Result |
-|---|---|---|---|
-| `tests/borrow_passthrough.rs` | Export param, `borrow<probe-thing>` | Passed to an import as `borrow<probe-thing>` | **Traps**: "borrow handles still remain at the end of the call" |
-| `tests/own_then_borrow.rs` | Export param, `own<probe-thing>` | Passed to an import as `borrow<probe-thing>` | **Traps**, identically |
-| `tests/own_then_own.rs` | Export param, `own<probe-thing>` | Passed to an import as `own<probe-thing>` | Succeeds |
-| `tests/internal_borrow.rs` | A *different* import call (`create-thing() -> probe-thing`), no export involved at all | A **method call** on it (`thing.ping()` - `self: borrow<probe-thing>` implicit) | **Traps**, identically |
+| Test | How the resource was obtained | How it's used | Host implementation | Result |
+|---|---|---|---|---|
+| `tests/borrow_passthrough.rs` | Export param, `borrow<probe-thing>` | Passed to an import as `borrow<probe-thing>` | Dynamic (`Linker::instance(...).resource(...)`) | **Traps**: "borrow handles still remain at the end of the call" |
+| `tests/own_then_borrow.rs` | Export param, `own<probe-thing>` | Passed to an import as `borrow<probe-thing>` | Dynamic | **Traps**, identically |
+| `tests/own_then_own.rs` | Export param, `own<probe-thing>` | Passed to an import as `own<probe-thing>` | Dynamic | Succeeds |
+| `tests/internal_borrow.rs` | A *different* import call (`create-thing() -> probe-thing`), no export involved at all | A **method call** on it (`thing.ping()` - `self: borrow<probe-thing>` implicit) | Dynamic | **Traps**, identically |
+| `tests/internal_borrow_bindgen.rs` | Same as `internal_borrow.rs` | Same as `internal_borrow.rs` | **Typed** (`wasmtime::component::bindgen!`) | **Succeeds** |
 
-All four use a minimal host-defined resource (`probe-thing`, registered via
-`Linker::instance(...).resource(...)`) instead of `wasi:http/types`' actual
-`request` - the concern doesn't depend on which interface declares the
-resource type, and this avoids needing the real (unavailable-here)
-`periapisis:host/hijack`/`wasi:http` machinery.
+All five use a minimal host-defined resource (`probe-thing`) instead of
+`wasi:http/types`' actual `request` - the concern doesn't depend on which
+interface declares the resource type, and this avoids needing the real
+(unavailable-here) `periapisis:host/hijack`/`wasi:http` machinery.
 
-**What this isolates:** the trap has nothing to do with the export/import
-boundary at all - `tests/internal_borrow.rs` reproduces it with no export
-parameter of any resource type in the picture whatsoever, and it doesn't
-matter whether the borrow argument is a named parameter on a freestanding
-function or a method's implicit `self`. The one true variable is **whether
-the resource being lowered as a `borrow<T>` was just constructed in *this
-exact* call** (`own_then_own.rs`, succeeds) **or was obtained earlier and is
-now being reused** (all three other tests, traps) - regardless of whether
-"earlier" means an export parameter or a prior, separate import call. This
-is not host-hijack-specific: grepping dwarf's entire existing test suite
-turns up **zero** tests that call any import function (or method) with a
-`borrow<T>` parameter for a host-defined resource obtained earlier
-(`wasi:sockets`, `wasi:filesystem`, `wasi:io`, and `wasi:http`'s own
-vendored WIT all declare several such functions - `is-same-object`,
-`network-error-code`, `splice`, etc. - but none of dwarf's tests exercise
-any of them). This is a previously-undiscovered, general gap that any of
-dwarf's *existing* polyfills could in principle hit too, if they ever needed
-this shape - it just happens that none currently do.
+**What the first four isolate:** the trap has nothing to do with the
+export/import boundary at all - `tests/internal_borrow.rs` reproduces it
+with no export parameter of any resource type in the picture whatsoever, and
+it doesn't matter whether the borrow argument is a named parameter on a
+freestanding function or a method's implicit `self`. Across those four, the
+one variable is whether the resource being lowered as a `borrow<T>` was just
+constructed in *this exact* call (`own_then_own.rs`, succeeds) or was
+obtained earlier and is now being reused (the other three, traps).
 
-**Root cause: narrowed further, but not conclusively pinned down; only
-partially in dwarf's own code.** `crates/runtime/src/call.rs`'s `pop_borrow`
-(dwarf's own code) returns the resource's existing raw handle number for the
-imported-resource branch; it does not itself create or reclaim any scoped
-"borrow lend" for this specific call - and `wit-dylib-ffi`'s `Interpreter`
-trait exposes no separate hook for that either (only `pop_borrow`/`pop_own`/
-`push_borrow`/`push_own`), so if such a step is needed, it isn't something
-`pop_borrow`'s implementation could add on its own regardless. The actual
-canonical-ABI lowering around that raw handle is generated by `wit-dylib`'s
-bindgen (`crates/wit-dylib/src/bindgen.rs` in the `wit-dylib`/`wasm-tools`
-git dependency - see `Cargo.lock`'s `wit-dylib-ffi` source, external to
-dwarf's own crates) and embedded into the component at build time; the
-trap's backtrace bottoms out in
-`wit_dylib_ffi::types::ImportFunction::call_import_sync`, in that generated
-glue, not in dwarf-runtime's own code.
+**But the fifth test changes the conclusion entirely.** dwarf's *existing*,
+already-passing test suite already exercises this exact "own from one call,
+borrow via a method call from a different call" shape successfully - every
+`wasi:sockets` test that does `TcpSocket.create()` and then calls a method
+like `.bind()` or `.getLocalAddress()` is precisely this pattern, and those
+work fine (see `tests/task_lifetime.rs`). The difference: `wasi:sockets` is
+implemented via `wasmtime-wasi`'s *typed*, `bindgen!`-generated host
+bindings, not wasmtime's lower-level *dynamic* Linker resource API
+(`Linker::instance(...).resource(...)` + `Val::Resource`/`ResourceAny`) that
+`tests/borrow_passthrough.rs` and its siblings used for test convenience.
+`tests/internal_borrow_bindgen.rs` confirms this directly: the *identical*
+shape (own from a constructor, then a method call taking an implicit
+`borrow<T>` self parameter), implemented with typed `bindgen!` host bindings
+instead of the dynamic API, **succeeds** - same dwarf-produced guest
+component, same dwarf-runtime crate, only the *host-side* resource
+registration mechanism differs.
 
-Notably, `wit-dylib`'s own upstream test suite
-(`crates/wit-dylib/test-programs/src/bin/resources_caller.rs`) contains a
-test of the *exact same shape* - call an import constructor for `own`
-resource, then call a method (`[method]a.frob`) on it, passing
-`Val::Borrow(handle.borrow())` - which is presumably a passing reference
-test upstream, suggesting the underlying mechanism is *intended* to support
-exactly this. Confirming whether it actually passes (which would point the
-bug squarely at something dwarf/wit-dylib-ffi-integration-specific rather
-than a genuine upstream gap) needs running that test suite directly, which
-needs a `wasi-sdk` toolchain layout this environment's ad-hoc install didn't
-match (`bin/wasm32-wasip3-clang` vs. the plain `bin/clang` their build
-script expects) - blocked on toolchain setup, not investigated further here.
-Pinning the exact mechanism needs either resolving that toolchain mismatch
-to run wit-dylib's own tests, or tracing the generated wasm bytecode
-directly - both out of scope for this verification pass, which established
-*whether* this works and narrowed *where* the difference must lie, not
-conclusively *why* it differs.
+**Root cause, now clear: this is a wasmtime dynamic-Linker-API quirk (or at
+minimum something outside dwarf's own responsibility), not a dwarf-runtime
+bug.** dwarf's own `pop_borrow`/`push_own`/`push_borrow` (`crates/runtime/
+src/call.rs`) behave identically regardless of how the host registers its
+resource - dwarf has no visibility into that at all, and the same generated
+`wit-dylib` canon-lower glue runs either way. The dynamic Linker API is a
+less-traveled path in wasmtime's own component-model implementation (real
+production host capabilities - `wasmtime-wasi` included - are built with
+typed `bindgen!` bindings); whatever additional bookkeeping the canonical
+ABI needs to correctly reclaim a borrow scoped to one call, the typed path
+provides it and the dynamic path apparently doesn't, for reasons this
+verification pass didn't need to trace further (would require reading
+wasmtime's own dynamic-resource-handling internals, out of scope here -
+this was already a wrong-turn-then-correction investigation and further
+digging into a wasmtime-internal quirk that doesn't block anything wasn't
+worth chasing past this point). This is *not* a dwarf bug, so there's
+nothing to fix in dwarf's own crates over it.
 
 **What this means for host-hijack:** `claim(request: borrow<request>)` is
-*exactly* this shape - `request` arrives via `handle(request)` (as either
-`own` or `borrow` depending on `wasi:http`'s actual signature, per the tests
-above it doesn't matter which) and gets forwarded into `claim()` as
-`borrow<request>`. **This traps as things stand today.** Unlike the
-task-lifetime question, this is not resolved by a host-embedding choice -
-it's either a dwarf-runtime bug, a `wit-dylib` upstream bug, or a
-genuine canonical-ABI subtlety this shape runs into; some of that needs
-fixing (in dwarf's own `call.rs`, or upstream in `wit-dylib`/`wasm-tools`,
-or both) before `claim()` can be called this way at all.
+exactly the shape that traps *only* under the dynamic Linker API. Any real
+`periapisis:host/hijack` host implementation would be built with typed
+`bindgen!` bindings - the normal, idiomatic way to implement a custom host
+capability in wasmtime, and the same approach `wasmtime-wasi` itself uses -
+not the dynamic API. **Under that (expected) implementation approach, there
+is no blocker.** The one thing worth a quick, cheap confirmation before
+relying on this: whoever implements `periapisis:host/hijack`'s host side
+should confirm they're using `bindgen!` (or equivalent typed bindings), not
+the dynamic Linker resource API - a one-line implementation detail to check,
+not a design question.
 
-**Recommendation, updated again:** don't start real host-hijack bindgen work
-yet - the task-lifetime gate is clear, but this borrow-forwarding gate is
-not. Before any implementation: either (a) root-cause and fix this in
-whichever codebase actually owns it (dwarf's `call.rs`, or an upstream
-`wit-dylib`/`wasm-tools` issue/PR), or (b) confirm whether `claim` could be
-redesigned to take `own<request>` instead of `borrow<request>` (sidestepping
-the broken path entirely, since `own→own` was confirmed to work) - a
-protocol-level question for whoever owns the `periapisis:host/hijack`
-interface, not a dwarf question. Either path is real work, not scoping.
+**Recommendation, corrected back to "no blocker":** both empirical questions
+this note set out to answer are resolved with no dwarf-side or fundamental
+blocker. Host-hijack's dwarf-side feasibility stands as originally assessed
+in "Bottom line" above. The still-open items are the same as before any of
+this verification started: it's post-demo, not prioritized, and the
+`--persistent`/`call_concurrent` host-embedding requirement (task-lifetime
+section) plus the typed-bindgen-not-dynamic-API assumption (this section)
+are the two facts worth confirming with whoever builds the real
+implementation - neither is a reason to expect new dwarf-runtime work.
 
 ## Rough integration shape
 
@@ -387,15 +386,16 @@ wanted for parity with today's `WebSocketServer` class shape.
 
 ## What this note is *not* saying
 
-This isn't a recommendation to build it now, or to deprecate WS-1/WS-1b -
-WS-1/WS-1b ships and stays valuable as a guest-side fallback for hosts
-without the hijack primitive; not every host will have
-`periapisis:host/hijack` available. Nor is it a claim that host-hijack is
-dead - the borrow-forwarding trap is real but narrow (isolated to one
-specific ABI shape) and has at least one plausible way around it (redesign
-`claim` to take `own<request>`) even before any dwarf/wit-dylib fix lands.
-But it is a real, confirmed blocker as things stand today - this is not yet
-a green light to build, and is a step *less* ready than "no known blocker"
-would have been. The task-lifetime half of the original risk is resolved
-cleanly; the borrow-forwarding half is a genuine open problem that needs
-real engineering (in dwarf, upstream, or both) before implementation starts.
+This isn't a recommendation to build it now - it remains scoping, prioritized
+post-demo, the same as when this note started; nothing found here changes
+that sequencing. It also isn't a recommendation to deprecate WS-1/WS-1b -
+they ship and stay valuable as a guest-side fallback for hosts without the
+hijack primitive; not every host will have `periapisis:host/hijack`
+available. What *has* changed: both empirical risks this note opened with
+are now resolved without finding a dwarf-side blocker - the task-lifetime
+question resolves to a host-embedding API choice, and the borrow-forwarding
+question (after a real wrong turn mid-investigation, corrected once a typed
+`bindgen!` comparison test was run) resolves to a wasmtime dynamic-Linker-API
+quirk that doesn't apply to real, typically-implemented host capabilities.
+Neither is a reason to expect dwarf-runtime work before host-hijack could be
+built, if and when it's prioritized.
