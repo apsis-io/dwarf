@@ -1010,12 +1010,48 @@ fn generate_fetch(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>)
 /// generation order doesn't matter, but `new WebSocketServer().listen(...)`
 /// without also requesting `webcrypto` throws a clear error naming it.
 ///
+/// `WebSocketServer` also doubles as a general single-port HTTP+WS router:
+/// registering an `on("request", (request) => response)` handler
+/// (additionally requires `--polyfill fetch-classes`, for `Request`/
+/// `Response` - same lazy, throws-a-plain-`ReferenceError`-without-it
+/// convention as `fetch()`) routes any non-upgrade HTTP request there,
+/// HTTP/1.1 keep-alive included, while WS upgrade requests still go through
+/// the handshake/frame path unchanged. This exists because some hosts can
+/// only reach a component on a single port (e.g. a TLS-passthrough-by-SNI
+/// funnel with one backend) - splitting a normal HTTP response path (SSR)
+/// and WebSocket upgrades across two ports isn't reachable through that
+/// kind of edge. Without a `"request"` handler registered, behavior is
+/// unchanged from before this existed: a non-upgrade request is dropped.
+///
 /// Scope cuts, matching this codebase's existing "documented limitation"
 /// style rather than a half-finished implementation: IPv4 only, no
 /// permessage-deflate (never negotiated, so real clients simply don't use
 /// it), text/binary messages delivered as a plain `string`/`Uint8Array` (no
 /// Blob/ArrayBuffer `binaryType` switch - there's no `Blob` in dwarf), no
 /// backpressure signaling on `send()` beyond a per-connection write queue.
+/// The HTTP router side has its own cuts: no chunked transfer-encoding on
+/// the request side (`Content-Length` only, rejected outright with `501`
+/// rather than silently mishandled), no `Expect: 100-continue`.
+///
+/// The HTTP router parses untrusted network input, so it's hardened
+/// against hostile/malformed requests: bounded header block size/count
+/// (16 KiB / 100 headers, `431` if exceeded), strict request-line/
+/// `Content-Length` validation (`400` on anything malformed), an oversized
+/// `Content-Length` rejected (`413`) before any of the body is read (not
+/// after buffering an attacker-declared amount), and an idle-read timeout
+/// (`idleTimeoutMs`, default 30s) so a connection that opens and then sends
+/// nothing/trickles bytes forever (slowloris) doesn't hold a connection or
+/// task open indefinitely - only enforced when the world imports
+/// `wasi:clocks/monotonic-clock@0.3.x` (same graceful-degradation shape as
+/// `setTimeout` itself), since the HTTP router shouldn't otherwise depend
+/// on a WIT import unrelated to sockets. Notably, the timeout path does
+/// NOT call the stream's `cancelRead()` on the losing side of its
+/// `Promise.race` - confirmed empirically that doing so traps the guest
+/// ("waitable cannot be used synchronously while added to a waitable
+/// set"), a hard wasm trap rather than a catchable error; dropping the
+/// connection's sockets/streams at the end of `handleConnection` (already
+/// happening regardless) is sufficient to actually close the underlying
+/// connection, without needing to proactively cancel the abandoned read.
 fn generate_websocket(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>) {
     let has_tcp = has_wasi_function(
         resolve,

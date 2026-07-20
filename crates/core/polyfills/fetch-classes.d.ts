@@ -94,3 +94,11 @@ declare class DOMException extends Error {
 // section) for why it exists alongside the plain name.
 declare function fetch(input: string | Request, init?: RequestInit): Promise<Response>;
 declare function fetchP3(input: string | Request, init?: RequestInit): Promise<Response>;
+
+// Merged onto WebSocketServer (declared in websocket-server.d.ts) - only
+// available with this polyfill also requested, since the handler's shape
+// references Request/Response. See README's "WebSockets" section for the
+// general HTTP+WS router this wires up.
+interface WebSocketServer {
+  on(event: "request", handler: (request: Request) => Response | Promise<Response>): WebSocketServer;
+}

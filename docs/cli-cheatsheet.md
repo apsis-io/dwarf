@@ -103,7 +103,7 @@ attributions: README's [Polyfills](../README.md#polyfills) section and
 | `clearTimeout`/`clearInterval` | Always safe no-ops, even without the clock import |
 | `AbortController`/`AbortSignal` | Hand-written, no WIT dependency — real `abort()`/`aborted`/`reason`/listeners |
 | `fetch()` | `wasi:http/client@0.3.x` — requires `--polyfill fetch-classes` too (for `Request`/`Response`/`Headers`) |
-| `WebSocketServer` | `wasi:sockets/types@0.3.0`'s `tcp-socket` — requires `--polyfill webcrypto` too (for the `Sec-WebSocket-Accept` handshake header) |
+| `WebSocketServer` | `wasi:sockets/types@0.3.0`'s `tcp-socket` — requires `--polyfill webcrypto` too (for the `Sec-WebSocket-Accept` handshake header). `on("request", ...)` also doubles it as a single-port HTTP+WS router (additionally requires `--polyfill fetch-classes`) |
 
 `console`/`process`/`crypto.getRandomValues`/`setTimeout`/`setInterval`/`fetch()`/`WebSocketServer`
 throw a clear error naming the missing import if the world doesn't provide it —
