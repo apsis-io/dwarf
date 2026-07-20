@@ -1,17 +1,25 @@
 # Feasibility: dwarf-side support for `periapisis:host/hijack`
 
-Status: **scoping + verification done - no new blocker found.** Written to
-de-risk a possible post-demo-7 migration away from `WebSocketServer`'s
-raw-socket HTTP+WS router (`crates/core/polyfills/websocket-server.js`,
-WS-1/WS-1b) toward a host-hijack-based single-port answer, per the
-architecture fork `trail-main-cli` flagged during WS-1b
-(`periapisis:host/hijack`, ADR-0046, live in the periapsis repo). The
-empirical verification step this note originally recommended (see below) has
-since been run (`tests/task_lifetime.rs`): holding a resource across the
-exporting call's own task settlement does **not** trap the guest - it
-behaves exactly like the already-documented `setTimeout` fire-and-forget
-caveat (silently abandoned, not resumed, no trap). See "Verification result"
-below.
+Status: **scoping + verification + root cause done - the open question is
+answered, and it's good news.** Written to de-risk a possible post-demo-7
+migration away from `WebSocketServer`'s raw-socket HTTP+WS router
+(`crates/core/polyfills/websocket-server.js`, WS-1/WS-1b) toward a
+host-hijack-based single-port answer, per the architecture fork
+`trail-main-cli` flagged during WS-1b (`periapisis:host/hijack`, ADR-0046,
+live in the periapsis repo). The empirical verification step this note
+originally recommended has been run (`tests/task_lifetime.rs`): holding a
+resource across the exporting call's own task settlement does **not** trap
+the guest, it just behaves like the already-documented `setTimeout`
+fire-and-forget caveat (silently abandoned, not resumed). A follow-on root
+cause investigation (`tests/task_persistence_rootcause.rs`) then answered
+the one remaining real question - **is the abandonment a fundamental
+wasmtime/component-model constraint, or something a host can avoid?** It's
+the latter: keeping wasmtime's own concurrent event loop open across calls
+(via `Func::call_concurrent` + a persistent `run_concurrent` scope, instead
+of a fresh `Func::call_async` per call) lets the background continuation
+survive and complete, confirmed for both a plain timer and a real
+resource-backed async op. See "Root cause: it's a host-side API choice, not
+a wasmtime limit" below.
 
 ## The interface being scoped
 
@@ -170,23 +178,88 @@ Lesson for next time doing this kind of empirical verification: capture and
 print the guest's stderr before drawing conclusions from a trap's backtrace
 shape - the backtrace tells you *where* the panic macro fired, not *why*.
 
-**What this means for host-hijack:** no *new* risk found. The only real open
-question is exactly the one trail already flagged before this note existed -
-does `--persistent` trail mode keep the whole task (not just the JS
-continuation) alive across `handle()`'s own return? This synthetic repro
-can't answer that (it has no `--persistent`-equivalent to test against); it
-only rules out a *dwarf-side* trap as an additional obstacle on top of that
-already-known requirement. That's still a host-side (trail's) question to
-answer, and it's post-demo, not urgent.
+**What this means for host-hijack:** no *new* risk found from this step
+alone. The remaining open question - does `--persistent` trail mode keep the
+whole task alive across `handle()`'s own return? - is answered definitively
+below.
 
-**Recommendation, unchanged from before verification:** don't build the
-host-hijack integration yet - not because of a newly-found blocker, but
-because it was never more than post-demo scoping. When `trail-main-cli`/lead
-want to revisit it, the next step is a real trail-hosted repro of a resource
-surviving past its exporting call's task settlement under `--persistent`
-mode; dwarf's own codegen has no known obstacle to contribute at that point.
+## Root cause: it's a host-side API choice, not a wasmtime limit
 
-## If a way past the lifetime problem is found: rough integration shape
+The one real open question left after the corrected verification above was
+*why* the background continuation gets abandoned at all, and whether that's
+fixable. `tests/task_persistence_rootcause.rs` answers it directly by
+reading wasmtime's own source and testing its lower-level API.
+
+**wasmtime's own documentation already says the abandonment isn't
+mandatory.** `Func::call_concurrent`'s doc comment
+(`wasmtime-46.0.1/src/runtime/component/concurrent/func.rs`) states: "If the
+future created by this function is dropped it does not cancel the
+in-progress execution of the wasm task... the task will still progress and
+invoke callbacks and such until completion" - provided the store's
+`run_concurrent` event loop keeps running. `Func::call_async` - what dwarf's
+own test harness uses, and what a "one call in, one call out" embedding
+naturally reaches for - is sugar for `run_concurrent_trap_on_idle`
+(`concurrent.rs`), which opens a **fresh** `run_concurrent` scope for each
+individual call and returns as soon as *that specific call's* own future
+resolves (`task.return`), independent of whether other tasks still have
+futures outstanding in the shared `ConcurrentState::futures` queue. Nothing
+then keeps polling those leftover futures until some *later* call happens to
+reopen a scope over the same store - and even then (see the "not-run"
+results in `task_lifetime.rs`), a scope that closes before the timer/subtask
+resolves never revives it.
+
+**Confirmed by direct experiment:** `tests/task_persistence_rootcause.rs`
+calls `run()` and `check()` via `Func::call_concurrent` inside a single,
+continuous `store.run_concurrent(async |accessor| { ... })` scope, with the
+same `tokio::time::sleep(300ms)` between them used in the earlier
+(`call_async`-based) tests - except this time the sleep happens *inside* the
+scope instead of between two separate `call_async` invocations. Result: the
+background continuation completes correctly in both cases -
+`test_continuation_survives_within_one_continuous_run_concurrent_scope`
+(bare timer) and
+`test_resource_holding_continuation_survives_within_one_continuous_scope`
+(a real `TcpSocket.connect()`, matching host-hijack's actual shape). Same
+guest code, same dwarf-built component, same dwarf-runtime crate - the only
+difference is which wasmtime API the *host* uses to drive the call.
+
+**Verdict: not a fundamental constraint, and not a dwarf-runtime bug or
+design flaw either.** dwarf's guest-side code (`crates/runtime`, including
+the single global `TaskState` slot in `task.rs` this investigation
+originally suspected) has no part in this - the callback for the old task's
+pending subtask is correctly restored and delivered via the existing
+`context_set`/`context_get` handle mechanism regardless of which later call
+happens to be in flight, *as long as the host keeps polling the store's
+event loop long enough to deliver it*. The constraint lives entirely on the
+**embedding host's** side, in the choice between:
+
+- `Func::call_async` per call (a fresh, narrow `run_concurrent` scope each
+  time) - background continuations that outlive one call are abandoned the
+  moment that call's own scope closes, and
+- `Func::call_concurrent` inside one long-lived `run_concurrent` scope
+  (spanning the whole server/component lifetime, not one request) -
+  background continuations survive exactly as wasmtime's own docs promise.
+
+This gives trail's own documented "`--persistent` trail mode" requirement
+concrete technical grounding instead of being an opaque necessity: it is, in
+all likelihood, precisely trail keeping a persistent `run_concurrent`/
+`Accessor`-driven event loop open across the component's whole serving
+lifetime (using `call_concurrent` per incoming request) rather than doing a
+fresh `call_async` per request. If that is indeed what `--persistent` mode
+does (trail's own docs already imply as much), **host-hijack's background
+read/write loop pattern is fully viable with dwarf's current runtime as-is -
+no dwarf-runtime change is needed.**
+
+**Recommendation, updated:** still don't build the host-hijack integration
+until it's actually prioritized post-demo - this remains scoping, not a
+build decision. But the blocking uncertainty is gone: when the work is
+picked up, the next step is simply confirming (or, if needed, arranging)
+that trail's host embedding calls into the guest via `call_concurrent` +
+a persistent `run_concurrent` scope for any component using this pattern -
+not a dwarf-side investigation or fix. No "fix sketch" is included here
+because there is nothing in dwarf's own runtime crate to fix; the lever is
+entirely in the host's own wasmtime embedding code.
+
+## Rough integration shape
 
 Not a rewrite - **most of WS-1/WS-1b's existing code is directly reusable**:
 
@@ -207,8 +280,10 @@ Not a rewrite - **most of WS-1/WS-1b's existing code is directly reusable**:
   dispatch replaces `WebSocketServer.listen()`'s `TcpSocket`/accept-stream
   loop entirely.
 
-Effort estimate, **conditional on trail's `--persistent` mode genuinely
-keeping the task alive across settlement** (see "Verification result"):
+Effort estimate, **conditional on trail's `--persistent` mode using
+`call_concurrent` + a persistent `run_concurrent` scope, as "Root cause"
+above implies it must** (worth a quick confirmation on trail's side, but no
+longer a blocking unknown):
 small-to-medium. The RFC 6455 protocol logic (the hard, security-sensitive
 part, per WS-1b) is done and reusable as-is; the new work is a thinner
 transport/handshake adapter plus whatever ergonomic wrapper (if any) is
@@ -220,6 +295,9 @@ This isn't a recommendation to build it now, or to deprecate WS-1/WS-1b -
 per lead's read (which matches the reasoning above), WS-1/WS-1b ships and
 stays valuable as a guest-side fallback for hosts without the hijack
 primitive; not every host will have `periapisis:host/hijack` available.
-Verification found no dwarf-side blocker, but that doesn't make this a green
-light either - the host-side `--persistent` question is still open, and
-this remains scoping, not a build decision.
+Verification and root-cause investigation together found no dwarf-side
+blocker and no fundamental wasmtime limit - the task-lifetime risk this note
+opened with is resolved to a known, well-understood host-embedding
+requirement (`call_concurrent` + a persistent `run_concurrent` scope), not
+an open unknown. That still doesn't make this a green light to build - it
+remains scoping, prioritized post-demo, same as when this note started.
