@@ -74,10 +74,21 @@ fn missing_package(err: &anyhow::Error) -> Option<PackageName> {
 }
 
 /// wit-parser reports a missing top-level terminator (most commonly a `;`
-/// after a `package` declaration) as "expected '{', found <next keyword>" at
-/// the position of the *following* item, not at the missing token itself -
-/// technically correct but easy to misread as "the following item is wrong".
-/// Appends a hint pointing at the real, more common cause.
+/// after a `package` declaration, or a `}` closing a preceding
+/// `interface`/`record`/`variant`/etc. block) as an error at the position of
+/// the *next* item it manages to parse, not at the missing token itself -
+/// technically correct (that's genuinely where the token stream diverges
+/// from what's valid) but easy to misread as "the following item is wrong"
+/// instead of "something before this wasn't closed/terminated". Confirmed by
+/// reproducing several variants (missing `;` after `package`, missing `}`
+/// closing an `interface` cascading into the next `world`, missing `}` at
+/// EOF) - genuine typos elsewhere (a misspelled keyword, an unknown type
+/// name) already produce a directly-actionable, correctly-located error with
+/// no cascading, so this only targets the specific "next top-level
+/// construct, or EOF, showed up somewhere it structurally can't" shape.
+/// Appends a hint pointing at the real, more common cause instead of trying
+/// to fix wit-parser's own error location (out of dwarf's control - see
+/// below).
 ///
 /// wit-parser's own parse error (`wit_parser::ParseError`) is flattened into a
 /// plain rendered string (`UnresolvedPackageGroup::parse`/`parse_dir` both do
@@ -85,11 +96,22 @@ fn missing_package(err: &anyhow::Error) -> Option<PackageName> {
 /// there's no structured error left to downcast to here - matching on the
 /// rendered message is the only option wit-parser's public API leaves us.
 fn annotate_syntax_hint(err: anyhow::Error) -> anyhow::Error {
-    if err.to_string().contains("expected '{', found") {
+    let msg = err.to_string();
+    // `world`/`interface` can only legally start a fresh top-level item, and
+    // EOF can only legally occur once every block is closed - if the parser
+    // reports any of these as the *unexpected* token, something before it
+    // was left unterminated/unclosed; there's no legitimate WIT program
+    // where seeing one of these next is itself the actual mistake.
+    let looks_like_missing_terminator = msg.contains("found keyword `world`")
+        || msg.contains("found keyword `interface`")
+        || msg.contains("found eof");
+
+    if looks_like_missing_terminator {
         err.context(
             "hint: this is often caused by a missing ';' terminating the previous top-level \
-             item (e.g. `package foo:bar;`) - the parser reports the error at the next item, \
-             not at the missing ';' itself",
+             item (e.g. `package foo:bar;`) or a missing '}' closing a preceding \
+             world/interface/record/variant/etc. block - the parser reports the error at the \
+             next item it saw (or end of file), not at the actual missing ';'/'}'",
         )
     } else {
         err

@@ -321,6 +321,76 @@ fn test_cli_reports_missing_import() {
         .stderr(predicate::str::contains("filesystem module not found"));
 }
 
+/// wit-parser reports a missing top-level terminator (a `;` after `package`,
+/// or a `}` closing a preceding `interface`/`record`/etc.) as an error at the
+/// position of the *next* item it manages to parse, not at the missing
+/// token - `annotate_syntax_hint` (crates/core/src/wit.rs) appends a hint
+/// pointing at the real, more common cause for exactly this "cascading"
+/// shape. Covers every variant reproduced while building it, plus a
+/// negative case (a genuine typo, unrelated to a missing terminator,
+/// already produces a clear, correctly-located error and should NOT get
+/// this hint - it would be actively misleading there).
+#[test]
+fn test_cli_hints_at_missing_terminator_on_cascading_parse_errors() {
+    fn build_and_capture_stderr(wit: &str) -> String {
+        let dir = TempDir::new().unwrap();
+        let wit_path = dir.path().join("test.wit");
+        let js_path = dir.path().join("test.js");
+        fs::write(&wit_path, wit).unwrap();
+        fs::write(&js_path, "export function f() {}").unwrap();
+
+        let output = dwarf_cmd()
+            .arg("--wit")
+            .arg(&wit_path)
+            .arg("--js")
+            .arg(&js_path)
+            .arg("--output")
+            .arg(dir.path().join("out.wasm"))
+            .assert()
+            .failure()
+            .get_output()
+            .stderr
+            .clone();
+        String::from_utf8(output).unwrap()
+    }
+
+    // Missing ';' after `package` - cascades into "expected '{', found
+    // keyword `world`".
+    let stderr =
+        build_and_capture_stderr("package simple:test\n\nworld hello { export greet: func(); }");
+    assert!(
+        stderr.contains("hint:"),
+        "missing ';' after package should get a hint:\n{stderr}"
+    );
+
+    // Missing '}' closing an `interface`, cascading into the next `world`.
+    let stderr = build_and_capture_stderr(
+        "package simple:test;\n\ninterface types {\n  record point {\n    x: u32,\n  }\n\nworld hello { export greet: func(); }",
+    );
+    assert!(
+        stderr.contains("hint:"),
+        "missing '}}' on an interface should get a hint:\n{stderr}"
+    );
+
+    // Missing '}' closing a `world`, cascading all the way to EOF.
+    let stderr =
+        build_and_capture_stderr("package simple:test;\n\nworld hello { export greet: func();");
+    assert!(
+        stderr.contains("hint:"),
+        "missing '}}' at EOF should get a hint:\n{stderr}"
+    );
+
+    // A genuine typo (misspelled `world`), unrelated to a missing
+    // terminator - wit-parser already reports this clearly and correctly
+    // located, so it should NOT get the "missing ';'/'}'" hint.
+    let stderr =
+        build_and_capture_stderr("package simple:test;\n\nwrold hello { export greet: func(); }");
+    assert!(
+        !stderr.contains("hint:"),
+        "a genuine typo should not get the missing-terminator hint:\n{stderr}"
+    );
+}
+
 #[test]
 fn test_cli_stub_wasi() {
     let (output, _dir) = run_cli_build(
