@@ -87,13 +87,18 @@ pub struct CliArgs {
     pub runtime: Option<std::path::PathBuf>,
 
     /// Compile a TypeScript module statically with scriptc and plug it in
-    /// (repeatable). The profile names the module and the functions to
-    /// export; JavaScript imports the result as `scriptc:<name>/ops`.
+    /// (repeatable). The boundary is derived from the module's exported
+    /// signatures; JavaScript imports it as `scriptc:<name>/ops`.
+    #[arg(long = "optimize", value_name = "MODULE")]
+    pub optimize: Vec<std::path::PathBuf>,
+
+    /// Like --optimize, but from a scriptc profile that declares the
+    /// boundary explicitly instead of deriving it (repeatable).
     #[arg(long = "scriptc", value_name = "PROFILE")]
     pub scriptc: Vec<std::path::PathBuf>,
 
     /// The scriptc executable to use for --scriptc (default: `scriptc` on PATH)
-    #[arg(long, value_name = "PATH", requires = "scriptc")]
+    #[arg(long, value_name = "PATH")]
     pub scriptc_bin: Option<std::path::PathBuf>,
 }
 
@@ -166,11 +171,19 @@ pub async fn run(args: Vec<String>) -> Result<()> {
         println!("Stubbing WASI imports...");
     }
 
-    for profile in &args.scriptc {
-        if !profile.exists() {
-            anyhow::bail!("scriptc profile not found: {}", profile.display());
+    // --optimize and --scriptc are the same pipeline; scriptc tells a
+    // module from a profile by its extension.
+    let statically_compiled: Vec<std::path::PathBuf> = args
+        .optimize
+        .iter()
+        .chain(args.scriptc.iter())
+        .cloned()
+        .collect();
+    for module in &statically_compiled {
+        if !module.exists() {
+            anyhow::bail!("not found: {}", module.display());
         }
-        println!("Compiling {} statically with scriptc...", display_path(profile));
+        println!("Compiling {} statically with scriptc...", display_path(module));
     }
 
     let polyfills: Vec<&str> = args.polyfills.iter().map(String::as_str).collect();
@@ -188,7 +201,7 @@ pub async fn run(args: Vec<String>) -> Result<()> {
             runtime,
         },
         &ScriptcConfig {
-            profiles: &args.scriptc,
+            profiles: &statically_compiled,
             bin: args.scriptc_bin.as_deref(),
         },
     )

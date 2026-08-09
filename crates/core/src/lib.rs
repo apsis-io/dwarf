@@ -71,10 +71,11 @@ pub struct ComponentizeOpts<'a> {
 /// QuickJS. Empty (the default) leaves componentization exactly as it was.
 #[derive(Default)]
 pub struct ScriptcConfig<'a> {
-    /// Profiles to build; each becomes a component the world imports and
-    /// that is plugged in at the end. JavaScript reaches one under the
-    /// specifier its generated WIT declares, `scriptc:<name>/ops` by
-    /// default.
+    /// Modules to build, each either a profile declaring the boundary or a
+    /// TypeScript module whose exported signatures scriptc derives one
+    /// from. Each becomes a component the world imports and that is
+    /// plugged in at the end; JavaScript reaches one under the specifier
+    /// its generated WIT declares, `scriptc:<name>/ops` by default.
     pub profiles: &'a [std::path::PathBuf],
     /// The scriptc executable. `None` looks for `scriptc` on PATH.
     pub bin: Option<&'a Path>,
@@ -142,11 +143,18 @@ pub async fn componentize_with(
     // Statically compiled modules join the world as imports BEFORE the shim
     // and the wit-dylib are generated: both are derived from the world, so
     // an import added afterwards would be invisible to JavaScript.
-    let scriptc_dir = std::env::temp_dir().join(format!("dwarf-scriptc-{}", std::process::id()));
+    // A directory of its own per call, not per process: two componentize
+    // calls in one process run concurrently under a test runner, and a
+    // shared scratch directory has them writing each other's archives and
+    // deleting each other's output mid-build.
+    let scriptc_dir = (!scriptc_config.profiles.is_empty())
+        .then(|| tempfile::Builder::new().prefix("dwarf-scriptc-").tempdir())
+        .transpose()
+        .context("failed to create a scratch directory for statically compiled modules")?;
     let scriptc_bin = scriptc_config.bin.unwrap_or_else(|| Path::new("scriptc"));
     let mut scriptc_parts = Vec::new();
     for profile in scriptc_config.profiles {
-        let mut part = scriptc::build(profile, scriptc_bin, &scriptc_dir)?;
+        let mut part = scriptc::build(profile, scriptc_bin, scriptc_dir.as_ref().unwrap().path())?;
         scriptc::import_into_world(&mut resolve, world_id, &mut part)?;
         scriptc_parts.push(part);
     }
@@ -203,9 +211,7 @@ pub async fn componentize_with(
     // leaving it open would look like a missing host import.
     component = scriptc::plug_scriptc(&component, &scriptc_parts)
         .context("failed to plug statically compiled modules")?;
-    if !scriptc_parts.is_empty() {
-        let _ = std::fs::remove_dir_all(&scriptc_dir);
-    }
+    drop(scriptc_dir); // the component bytes are in hand; the scratch can go
 
     let mut producers = wasm_metadata::Producers::empty();
     producers.add("processed-by", "dwarf", env!("CARGO_PKG_VERSION"));

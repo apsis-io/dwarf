@@ -17,7 +17,17 @@ use wasmtime::component::Val;
 
 use common::{TestCase, scriptc_available};
 
-/// A profile plus its TypeScript entry, in a directory of their own.
+/// The TypeScript half, on its own. Its exported signatures are all the
+/// boundary anyone needs (see `inferred_boundary_needs_no_profile`).
+fn hot_source(dir: &TempDir) -> PathBuf {
+    let module_dir = dir.path().join("hot");
+    fs::create_dir_all(&module_dir).unwrap();
+    let entry = module_dir.join("hot.ts");
+    fs::write(&entry, HOT_TS).unwrap();
+    entry
+}
+
+/// The same module with a hand-written profile beside it.
 fn hot_module(dir: &TempDir) -> PathBuf {
     let module_dir = dir.path().join("hot");
     fs::create_dir_all(&module_dir).unwrap();
@@ -71,6 +81,25 @@ const WIT: &str = r#"
     world optimized {
         export greet: func(name: string) -> string;
         export digest: func(text: string) -> f64;
+    }
+"#;
+
+/// Two exports that cross and one that cannot, so inference has something
+/// to leave out.
+const HOT_TS: &str = r#"
+    export function shout(s: string): string {
+      return s.toUpperCase() + "!";
+    }
+    export function twice(n: number): number {
+      return n * 2;
+    }
+    export function checksum(data: Uint8Array): number {
+      let h = 0;
+      for (const b of data) h = (h * 31 + b) % 1000000007;
+      return h;
+    }
+    export async function unreachable(s: string): Promise<string> {
+      return s;
     }
 "#;
 
@@ -147,4 +176,34 @@ fn the_seam_does_not_survive_into_the_component() {
         imports.iter().any(|name| name.starts_with("wasi:")),
         "expected WASI imports to remain, got {imports:?}"
     );
+}
+
+#[test]
+fn inferred_boundary_needs_no_profile() {
+    if !scriptc_available() {
+        eprintln!("skipping: set DWARF_TEST_SCRIPTC to a scriptc executable");
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // The module alone — the async export simply stays out of the
+    // interface, and everything the JavaScript actually calls crosses.
+    let entry = hot_source(&dir);
+
+    TestCase::new()
+        .wit(WIT)
+        .script(JS)
+        .scriptc(entry)
+        .expect_call(
+            "greet",
+            vec![Val::String("engi".into())],
+            Val::String("ENGI! twice(21) = 42".into()),
+        )
+        .expect_call(
+            "digest",
+            vec![Val::String("hello world".into())],
+            Val::Float64(204910434.0),
+        )
+        .build()
+        .unwrap()
+        .run();
 }

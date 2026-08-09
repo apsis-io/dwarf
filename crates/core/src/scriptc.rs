@@ -39,19 +39,24 @@ pub struct ScriptcComponent {
     pub specifier: String,
 }
 
-/// Build one profile into a component by invoking scriptc.
+/// Build one module into a component by invoking scriptc.
 ///
-/// `scriptc_bin` is the executable to run; `work_dir` receives the archive,
-/// the generated shim and WIT, and the component itself. scriptc reports
-/// the paths it wrote on stdout, one per line.
-pub fn build(profile_path: &Path, scriptc_bin: &Path, work_dir: &Path) -> Result<ScriptcComponent> {
+/// `source` is either a profile, which declares the boundary, or a
+/// TypeScript module, whose exported signatures scriptc derives one from.
+/// `work_dir` receives the archive, the generated shim and WIT, and the
+/// component itself. scriptc reports the paths it wrote on stdout, one per
+/// line, and names any export that could not cross on stderr — passed
+/// through here, since a missing export is something the author needs to
+/// see rather than discover at run time.
+pub fn build(source: &Path, scriptc_bin: &Path, work_dir: &Path) -> Result<ScriptcComponent> {
     std::fs::create_dir_all(work_dir)
         .with_context(|| format!("failed to create {}", work_dir.display()))?;
-    let stem = profile_path
-        .parent()
-        .and_then(|p| p.file_name())
+    let stem = source
+        .file_stem()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "scriptc".to_string());
+    // A profile is passed by flag; a module is the positional input.
+    let is_profile = source.extension().is_some_and(|e| e == "json");
 
     // scriptc needs the preview1 reactor adapter, and dwarf already embeds
     // exactly the one it uses itself — so it hands over its own copy
@@ -66,9 +71,13 @@ pub fn build(profile_path: &Path, scriptc_bin: &Path, work_dir: &Path) -> Result
     // No --wit-package: scriptc defaults it to scriptc:<profile name>, and
     // the generated WIT below is where dwarf learns what that was.
     let archive = work_dir.join(format!("{stem}.lib.a"));
-    let output = Command::new(scriptc_bin)
-        .args(["build", "--lib", "--component", "--profile"])
-        .arg(profile_path)
+    let mut command = Command::new(scriptc_bin);
+    command.args(["build", "--lib", "--component"]);
+    if is_profile {
+        command.arg("--profile");
+    }
+    let output = command
+        .arg(source)
         .arg("-o")
         .arg(&archive)
         // A component is a wasm build, and zig is the driver with the
@@ -88,10 +97,17 @@ pub fn build(profile_path: &Path, scriptc_bin: &Path, work_dir: &Path) -> Result
     if !output.status.success() {
         bail!(
             "scriptc failed to build {}:\n{}{}",
-            profile_path.display(),
+            source.display(),
             String::from_utf8_lossy(&output.stderr),
             String::from_utf8_lossy(&output.stdout),
         );
+    }
+
+    // scriptc's notes about exports that stayed out of the boundary, and
+    // the derived profile's location, ride stderr.
+    let notes = String::from_utf8_lossy(&output.stderr);
+    for line in notes.lines().filter(|l| !l.trim().is_empty()) {
+        eprintln!("{line}");
     }
 
     // stdout is the component then the WIT, one path per line.
@@ -100,7 +116,7 @@ pub fn build(profile_path: &Path, scriptc_bin: &Path, work_dir: &Path) -> Result
     let (Some(wit_line), Some(component_line)) = (lines.next(), lines.next()) else {
         bail!(
             "scriptc did not report the component and WIT it wrote for {}:\n{stdout}",
-            profile_path.display()
+            source.display()
         );
     };
     let component_path = PathBuf::from(component_line.trim());
