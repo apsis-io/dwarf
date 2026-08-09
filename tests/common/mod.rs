@@ -11,7 +11,7 @@ use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use dwarf_core::{ComponentizeOpts, Runtime};
+use dwarf_core::{ComponentizeOpts, Runtime, ScriptcConfig};
 
 pub struct WasiCtxState {
     pub wasi: WasiCtx,
@@ -66,6 +66,19 @@ pub struct TestCase {
     stdin: Option<String>,
     expectations: Vec<Expectation>,
     polyfills: Vec<String>,
+    scriptc_profiles: Vec<PathBuf>,
+}
+
+/// The scriptc executable for --scriptc tests. scriptc is not published, so
+/// tests that need it name it through DWARF_TEST_SCRIPTC and skip when it is
+/// absent (see `scriptc_available`).
+pub fn scriptc_bin() -> Option<PathBuf> {
+    std::env::var_os("DWARF_TEST_SCRIPTC").map(PathBuf::from)
+}
+
+/// Whether the statically-compiled-module tests can run here.
+pub fn scriptc_available() -> bool {
+    scriptc_bin().is_some_and(|p| p.exists())
 }
 
 impl TestCase {
@@ -76,6 +89,7 @@ impl TestCase {
             world_name: None,
             script: None,
             stub_wasi: false,
+            scriptc_profiles: Vec::new(),
             env_vars: Vec::new(),
             stdin: None,
             expectations: Vec::new(),
@@ -114,6 +128,12 @@ impl TestCase {
     /// Include static (non-WASI) polyfills, e.g. `["webcrypto"]`.
     pub fn polyfills(mut self, names: &[&str]) -> Self {
         self.polyfills = names.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+    /// Compile a module statically with scriptc and plug it in.
+    pub fn scriptc(mut self, profile: PathBuf) -> Self {
+        self.scriptc_profiles.push(profile);
         self
     }
 
@@ -169,7 +189,12 @@ impl TestCase {
             .enable_all()
             .build()?;
 
-        let wasm = rt.block_on(dwarf_core::componentize(&opts))?;
+        let scriptc_path = scriptc_bin();
+        let scriptc = ScriptcConfig {
+            profiles: &self.scriptc_profiles,
+            bin: scriptc_path.as_deref(),
+        };
+        let wasm = rt.block_on(dwarf_core::componentize_with(&opts, &scriptc))?;
         ComponentInstance::from_wasm_with_stdin(wasm, self.env_vars, self.stdin, self.expectations)
     }
 
@@ -206,6 +231,8 @@ impl TestCase {
 }
 
 pub struct ComponentInstance {
+    /// The component's own bytes, for tests that inspect the artifact.
+    pub wasm: Vec<u8>,
     store: Store<WasiCtxState>,
     inner: Instance,
     stdout: MemoryOutputPipe,
@@ -252,6 +279,7 @@ impl ComponentInstance {
         let instance = linker.instantiate(&mut store, &component)?;
 
         Ok(ComponentInstance {
+            wasm,
             store,
             inner: instance,
             stdout,

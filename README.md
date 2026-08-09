@@ -140,6 +140,8 @@ dwarf [OPTIONS] --wit <WIT> --js <JS>
 | `--opt-size` | | Use the built-in QuickJS runtime optimized for size |
 | `--sync` | | Use the built-in non-async runtime (combine with `--opt-size` for the non-async opt-size runtime) |
 | `--runtime <PATH>` | | Custom QuickJS runtime Wasm module to embed |
+| `--scriptc <PROFILE>` | | Compile a TypeScript module statically with [scriptc](#statically-compiled-modules) and plug it in (repeatable) |
+| `--scriptc-bin <PATH>` | | The scriptc executable for `--scriptc` (default: `scriptc` on PATH) |
 
 ### Cargo features
 
@@ -248,6 +250,64 @@ why the global `fetch()` polyfill (`--polyfill fetch-classes`, see
 [Polyfills](#polyfills)) can wire directly to `wasi:http/client` without
 needing a separate composed component at all, for the common case of one
 component wanting its own `fetch()`.
+
+### Statically Compiled Modules
+
+Code that runs hot does not have to run in QuickJS.
+[scriptc](https://github.com/vercel-labs/scriptc) compiles TypeScript ahead
+of time, and `--scriptc` builds a module with it and plugs the result into
+the component being generated — QuickJS keeps everything dynamic, while leaf
+modules doing real work over numbers, strings, and bytes become native Wasm.
+
+A scriptc *profile* names the module and the functions to expose:
+
+```json
+{
+  "profile_format": 1,
+  "name": "hot",
+  "entry": "hot.ts",
+  "emission": "c",
+  "abi": {
+    "prefix": "hot_",
+    "init_symbol": "hot_init",
+    "sink_register_symbol": "hot_set_panic_sink",
+    "collect_symbol": "hot_collect",
+    "result_reset_symbol": null
+  },
+  "exports": [
+    { "export": "checksum", "symbol": "hot_checksum", "params": ["bytes"], "returns": "f64" }
+  ]
+}
+```
+
+JavaScript imports it under `scriptc:<profile name>/ops`, and your world
+declares nothing — dwarf adds the interface itself from the WIT scriptc
+generates:
+
+```js
+import ops from "scriptc:hot/ops";
+
+export function digest(text) {
+  return ops.checksum(new TextEncoder().encode(text));
+}
+```
+
+```bash
+dwarf --wit app.wit --js app.js --scriptc hot/profile.json -o app.wasm
+```
+
+The seam does not survive into the output: the interface is satisfied by
+composition, so the finished component imports only WASI.
+
+What crosses the boundary is limited to what the canonical ABI carries
+cheaply — `f64`, `bool`, `string`, `bytes`, and the sized integer classes.
+A function taking a callback, a class instance, or a closure stays in
+QuickJS regardless of whether scriptc could compile it, so the win
+concentrates in leaf modules doing computation.
+
+`--scriptc` needs a scriptc install and the toolchain behind it (zig and
+`wasm-tools`); the WASI adapter is dwarf's own, so there is nothing else to
+configure.
 
 ### Vendoring WIT Dependencies
 

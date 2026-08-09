@@ -1,4 +1,4 @@
-use dwarf_core::{ComponentizeOpts, Runtime, componentize};
+use dwarf_core::{ComponentizeOpts, Runtime, ScriptcConfig, componentize_with};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -85,6 +85,16 @@ pub struct CliArgs {
     /// Path to a custom QuickJS runtime Wasm module
     #[arg(long, value_name = "PATH")]
     pub runtime: Option<std::path::PathBuf>,
+
+    /// Compile a TypeScript module statically with scriptc and plug it in
+    /// (repeatable). The profile names the module and the functions to
+    /// export; JavaScript imports the result as `scriptc:<name>/ops`.
+    #[arg(long = "scriptc", value_name = "PROFILE")]
+    pub scriptc: Vec<std::path::PathBuf>,
+
+    /// The scriptc executable to use for --scriptc (default: `scriptc` on PATH)
+    #[arg(long, value_name = "PATH", requires = "scriptc")]
+    pub scriptc_bin: Option<std::path::PathBuf>,
 }
 
 /// Run the dwarf CLI with the given arguments.
@@ -156,19 +166,32 @@ pub async fn run(args: Vec<String>) -> Result<()> {
         println!("Stubbing WASI imports...");
     }
 
+    for profile in &args.scriptc {
+        if !profile.exists() {
+            anyhow::bail!("scriptc profile not found: {}", profile.display());
+        }
+        println!("Compiling {} statically with scriptc...", display_path(profile));
+    }
+
     let polyfills: Vec<&str> = args.polyfills.iter().map(String::as_str).collect();
-    let component = componentize(&ComponentizeOpts {
-        wit_path: &args.wit,
-        js_source: &js_source,
-        js_path: Some(&args.js),
-        module_root: args.module_root.as_deref(),
-        world_name: args.world.as_deref(),
-        stub_wasi: args.stub_wasi,
-        auto_vendor: !args.no_vendor,
-        polyfills: &polyfills,
-        disable_gc: args.disable_gc,
-        runtime,
-    })
+    let component = componentize_with(
+        &ComponentizeOpts {
+            wit_path: &args.wit,
+            js_source: &js_source,
+            js_path: Some(&args.js),
+            module_root: args.module_root.as_deref(),
+            world_name: args.world.as_deref(),
+            stub_wasi: args.stub_wasi,
+            auto_vendor: !args.no_vendor,
+            polyfills: &polyfills,
+            disable_gc: args.disable_gc,
+            runtime,
+        },
+        &ScriptcConfig {
+            profiles: &args.scriptc,
+            bin: args.scriptc_bin.as_deref(),
+        },
+    )
     .await?;
 
     fs::write(&args.output, &component)

@@ -1,6 +1,7 @@
 pub mod codegen;
 pub mod polyfills;
 mod resolver;
+pub mod scriptc;
 pub mod stubwasi;
 pub mod types;
 mod wit;
@@ -66,6 +67,19 @@ pub struct ComponentizeOpts<'a> {
     pub runtime: Runtime<'a>,
 }
 
+/// Modules to compile statically with scriptc instead of running them in
+/// QuickJS. Empty (the default) leaves componentization exactly as it was.
+#[derive(Default)]
+pub struct ScriptcConfig<'a> {
+    /// Profiles to build; each becomes a component the world imports and
+    /// that is plugged in at the end. JavaScript reaches one under the
+    /// specifier its generated WIT declares, `scriptc:<name>/ops` by
+    /// default.
+    pub profiles: &'a [std::path::PathBuf],
+    /// The scriptc executable. `None` looks for `scriptc` on PATH.
+    pub bin: Option<&'a Path>,
+}
+
 /// QuickJS runtime variant to embed in the generated component.
 #[derive(Clone, Copy, Debug)]
 pub enum Runtime<'a> {
@@ -112,8 +126,31 @@ pub fn default_builtin_runtime() -> Runtime<'static> {
 
 /// Convert JavaScript source code into a WebAssembly component.
 pub async fn componentize(opts: &ComponentizeOpts<'_>) -> Result<Vec<u8>> {
-    let (resolve, pkg_id) = wit::resolve_wit(opts.wit_path, opts.auto_vendor)?;
+    componentize_with(opts, &ScriptcConfig::default()).await
+}
+
+/// `componentize`, with modules to compile statically alongside the
+/// JavaScript. Separate from `ComponentizeOpts` so that every existing
+/// caller keeps the plain signature.
+pub async fn componentize_with(
+    opts: &ComponentizeOpts<'_>,
+    scriptc_config: &ScriptcConfig<'_>,
+) -> Result<Vec<u8>> {
+    let (mut resolve, pkg_id) = wit::resolve_wit(opts.wit_path, opts.auto_vendor)?;
     let world_id = resolve.select_world(&[pkg_id], opts.world_name)?;
+
+    // Statically compiled modules join the world as imports BEFORE the shim
+    // and the wit-dylib are generated: both are derived from the world, so
+    // an import added afterwards would be invisible to JavaScript.
+    let scriptc_dir = std::env::temp_dir().join(format!("dwarf-scriptc-{}", std::process::id()));
+    let scriptc_bin = scriptc_config.bin.unwrap_or_else(|| Path::new("scriptc"));
+    let mut scriptc_parts = Vec::new();
+    for profile in scriptc_config.profiles {
+        let mut part = scriptc::build(profile, scriptc_bin, &scriptc_dir)?;
+        scriptc::import_into_world(&mut resolve, world_id, &mut part)?;
+        scriptc_parts.push(part);
+    }
+    let resolve = resolve;
 
     let mut shim = codegen::generate_shim(&resolve, world_id);
     shim.push_str(&polyfills::resolve_shim_suffix(opts.polyfills)?);
@@ -160,6 +197,14 @@ pub async fn componentize(opts: &ComponentizeOpts<'_>) -> Result<Vec<u8>> {
 
     if opts.stub_wasi {
         component = stub_wasi_imports(&component).context("failed to stub WASI imports")?;
+    }
+
+    // Plugged after the WASI stubbing above: the seam is dwarf's own, and
+    // leaving it open would look like a missing host import.
+    component = scriptc::plug_scriptc(&component, &scriptc_parts)
+        .context("failed to plug statically compiled modules")?;
+    if !scriptc_parts.is_empty() {
+        let _ = std::fs::remove_dir_all(&scriptc_dir);
     }
 
     let mut producers = wasm_metadata::Producers::empty();
