@@ -289,19 +289,24 @@ can an `async` or generic one; each is named on stderr as it is left out,
 so the interface is never a silent subset.
 
 **Crossing is necessary, not sufficient.** Moving a call across costs
-roughly 9µs per KB of string or list payload, so it pays only where the
+roughly 1.5µs per KB of string or list payload, so it pays only where the
 call does substantially more work than that. Two functions of the same
-shape, measured:
+shape, measured against a release build:
 
 | | payload | result |
 |---|---|---|
-| `sha1(bytes) -> bytes` | 1 KiB in, 20 B out | **11.3× faster** |
-| `layout(string, string) -> string` | ~20 B in, 2.4 KB out | **11.9× slower** |
+| `sha1(bytes) -> bytes` | 1 KiB in, 20 B out | **4.2× faster** |
+| `layout(string, string) -> string` | ~20 B in, 2.4 KB out | **4.7× slower** |
 
-`sha1` does ~4200µs of work per call and pays ~9µs to cross. `layout`
-builds a template string in ~2µs and pays ~18µs. Use `scriptc boundary`
+`sha1` does ~1500µs of work per call and pays ~1µs to cross. `layout`
+builds a template string in ~0.7µs and pays ~2.4µs. Use `scriptc boundary`
 to find candidates, then measure — the win concentrates in leaf modules
 whose work per call dwarfs their payload.
+
+Measure with a **release** build: `build.rs` compiles the embedded QuickJS
+runtime with profile-dependent flags (`-Clto=fat -Copt-level=3` for
+release, none for debug), and the component-model marshalling runs inside
+that runtime — so a debug host inflates both the wins and the losses.
 
 ### Declaring the boundary explicitly
 
