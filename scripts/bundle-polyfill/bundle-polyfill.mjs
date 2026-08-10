@@ -30,7 +30,8 @@
  */
 import { build } from "esbuild";
 import { genObjectFromRawEntries } from "knitwork";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { annotateBundle, signaturesFromDts } from "./annotate.mjs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -110,7 +111,24 @@ async function main() {
   const code = result.outputFiles[0].text;
   const outPath = join(polyfillsDir, `${opts.name}.js`);
   const header = `// ${opts.name}.js - bundled build of ${opts.pkg} (see NOTICES)\n`;
-  writeFileSync(outPath, header + code);
+
+  // Carry the hand-written .d.ts signatures in as JSDoc. Untyped exports
+  // do not merely keep the polyfill itself out of a static build — they
+  // stop any user module that IMPORTS one from compiling at all.
+  let annotated = code;
+  const dtsPath = join(polyfillsDir, `${opts.name}.d.ts`);
+  if (existsSync(dtsPath)) {
+    const result = annotateBundle(code, signaturesFromDts(readFileSync(dtsPath, "utf8"), dtsPath));
+    annotated = result.code;
+    console.log(
+      result.annotated > 0
+        ? `Typed ${result.annotated} export(s) from ${opts.name}.d.ts as JSDoc.\n`
+        : `No export of ${opts.name}.d.ts had a signature simple enough to carry across as JSDoc.\n`,
+    );
+  } else {
+    console.log(`No ${opts.name}.d.ts yet — bundling untyped; re-run after writing it to carry the types in.\n`);
+  }
+  writeFileSync(outPath, header + annotated);
 
   const installLine = opts.global
     ? `globalThis.${opts.name} = ${opts.global};`

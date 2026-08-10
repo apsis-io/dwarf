@@ -10,12 +10,20 @@ function genString(input, options = {}) {
 var NEEDS_ESCAPE_RE = /[\n\r'\\\u2028\u2029]/;
 var QUOTE_NEWLINE_RE = /([\n\r'\u2028\u2029])/g;
 var BACKSLASH_RE = /\\/g;
+/**
+ * @param {string} id
+ * @returns {string}
+ */
 function escapeString(id) {
   if (!NEEDS_ESCAPE_RE.test(id)) {
     return id;
   }
   return id.replace(BACKSLASH_RE, "\\\\").replace(QUOTE_NEWLINE_RE, "\\$1");
 }
+/**
+ * @param {string} name
+ * @returns {string}
+ */
 function genSafeVariableName(name) {
   if (reservedNames.has(name)) {
     return `_${name}`;
@@ -164,6 +172,10 @@ function wrapInDelimiters(lines, indent = "", delimiters = "{}", withComma = tru
 ` + lines.join(withComma ? ",\n" : "\n") + `
 ${indent}${end}`;
 }
+/**
+ * @param {string} key
+ * @returns {string}
+ */
 function genObjectKey(key) {
   return VALID_IDENTIFIER_RE.test(key) ? key : genString(key);
 }

@@ -107,6 +107,10 @@ var ENC_ENC_SLASH_RE = /%252f/gi;
 function encode(text) {
   return encodeURI("" + text).replace(ENC_PIPE_RE, "|");
 }
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function encodeHash(text) {
   return encode(text).replace(ENC_CURLY_OPEN_RE, "{").replace(ENC_CURLY_CLOSE_RE, "}").replace(ENC_CARET_RE, "^");
 }
@@ -129,6 +133,10 @@ function decode(text = "") {
     return "" + text;
   }
 }
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function decodePath(text) {
   return decode(text.replace(ENC_SLASH_RE, "%252F"));
 }
@@ -189,6 +197,10 @@ var PROTOCOL_RELATIVE_REGEX = /^([/\\]\s*){2,}[^/\\]/;
 var PROTOCOL_SCRIPT_RE = /^[\s\0]*(blob|data|javascript|vbscript):$/i;
 var TRAILING_SLASH_RE = /\/$|\/\?|\/#/;
 var JOIN_LEADING_SLASH_RE = /^\.?\//;
+/**
+ * @param {string} inputString
+ * @returns {boolean}
+ */
 function isRelative(inputString) {
   return ["./", "../"].some((string_) => inputString.startsWith(string_));
 }
@@ -260,6 +272,11 @@ function withLeadingSlash(input = "") {
 function cleanDoubleSlashes(input = "") {
   return input.split("://").map((string_) => string_.replace(/\/{2,}/g, "/")).join("://");
 }
+/**
+ * @param {string} input
+ * @param {string} base
+ * @returns {string}
+ */
 function withBase(input, base) {
   if (isEmptyURL(base) || hasProtocol(input)) {
     return input;
@@ -273,6 +290,11 @@ function withBase(input, base) {
   }
   return joinURL(_base, input);
 }
+/**
+ * @param {string} input
+ * @param {string} base
+ * @returns {string}
+ */
 function withoutBase(input, base) {
   if (isEmptyURL(base)) {
     return input;
@@ -309,6 +331,10 @@ function filterQuery(input, predicate) {
 function getQuery(input) {
   return parseQuery(parseURL(input).search);
 }
+/**
+ * @param {string} url
+ * @returns {boolean}
+ */
 function isEmptyURL(url) {
   return !url || url === "/";
 }
@@ -371,15 +397,32 @@ function joinRelativeURL(..._input) {
   }
   return url;
 }
+/**
+ * @param {string} input
+ * @returns {string}
+ */
 function withHttp(input) {
   return withProtocol(input, "http://");
 }
+/**
+ * @param {string} input
+ * @returns {string}
+ */
 function withHttps(input) {
   return withProtocol(input, "https://");
 }
+/**
+ * @param {string} input
+ * @returns {string}
+ */
 function withoutProtocol(input) {
   return withProtocol(input, "");
 }
+/**
+ * @param {string} input
+ * @param {string} protocol
+ * @returns {string}
+ */
 function withProtocol(input, protocol) {
   let match = input.match(PROTOCOL_REGEX);
   if (!match) {
@@ -390,6 +433,10 @@ function withProtocol(input, protocol) {
   }
   return protocol + input.slice(match[0].length);
 }
+/**
+ * @param {string} input
+ * @returns {string}
+ */
 function normalizeURL(input) {
   const parsed = parseURL(input);
   parsed.pathname = encodePath(decodePath(parsed.pathname));
@@ -431,6 +478,11 @@ function resolveURL(base = "", ...inputs) {
   }
   return stringifyParsedURL(url);
 }
+/**
+ * @param {string} p1
+ * @param {string} p2
+ * @returns {boolean}
+ */
 function isSamePath(p1, p2) {
   return decode(withoutTrailingSlash(p1)) === decode(withoutTrailingSlash(p2));
 }
@@ -449,6 +501,11 @@ function isEqual(a, b, options = {}) {
   }
   return a === b;
 }
+/**
+ * @param {string} input
+ * @param {string} hash
+ * @returns {string}
+ */
 function withFragment(input, hash) {
   if (!hash || hash === "#") {
     return input;
@@ -457,9 +514,17 @@ function withFragment(input, hash) {
   parsed.hash = hash === "" ? "" : "#" + encodeHash(hash);
   return stringifyParsedURL(parsed);
 }
+/**
+ * @param {string} input
+ * @returns {string}
+ */
 function withoutFragment(input) {
   return stringifyParsedURL({ ...parseURL(input), hash: "" });
 }
+/**
+ * @param {string} input
+ * @returns {string}
+ */
 function withoutHost(input) {
   const parsed = parseURL(input);
   return (parsed.pathname || "/") + parsed.search + parsed.hash;

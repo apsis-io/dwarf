@@ -32,9 +32,40 @@ Options:
   for a polyfill that exposes a single function/class rather than a namespace
   object (e.g. `klona`'s `globalThis.klona = klona;`)
 
+## Types
+
+The bundle is plain JavaScript, so every parameter is implicitly `any`. That
+costs nothing under QuickJS, but it stops [scriptc](https://github.com/vercel-labs/scriptc)
+dead — and not only for the polyfill itself: a **user module that imports
+one cannot compile at all**, refusing with `the reference to 'x' (a binding
+form with no lowering)`. Typing the exports unblocks the caller, which then
+inlines the polyfill's code into its own compiled body.
+
+TypeScript will not apply a sibling `.d.ts` to a `.js` implementation (it
+*shadows* it for consumers instead), so the signatures have to reach the
+bundle as JSDoc. `annotate.mjs` copies them out of the `.d.ts` you already
+write by hand, and bundling runs it automatically. It is deliberately
+conservative: only `string`/`number`/`boolean`/`void`/`Uint8Array` and
+arrays of those are emitted, and a function with an optional parameter, a
+rest parameter, an overload, or any other type is left untouched — an
+unannotated function is the status quo, a wrongly annotated one is a lie
+the compiler believes.
+
+For bundles produced before this existed, or after editing a `.d.ts`:
+
+```sh
+node annotate-existing.mjs           # apply
+node annotate-existing.mjs --check   # CI: fail if a bundle is missing types
+```
+
+Both are idempotent. Currently typed: `ufo` (15), `path` (7), `knitwork`
+(3), `scule` (2). The rest declare `unknown` parameters (`ohash`, `klona`),
+are async (`webcrypto`), or pass objects (`buffer`, `url`, `unstorage`).
+
 ## What this does NOT automate
 
-- `crates/core/polyfills/<name>.d.ts` - write by hand
+- `crates/core/polyfills/<name>.d.ts` - write by hand (`annotate.mjs` then
+  carries it into the bundle)
 - A [NOTICES](../../NOTICES) entry for the vendored package's license
 - `docs/cli-cheatsheet.md` and `README.md`'s polyfill tables
 - Tests exercising the new polyfill

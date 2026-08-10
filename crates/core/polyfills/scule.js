@@ -48,9 +48,17 @@ function splitByCase(str, separators) {
   parts.push(buff);
   return parts;
 }
+/**
+ * @param {string} str
+ * @returns {string}
+ */
 function upperFirst(str) {
   return str ? str[0].toUpperCase() + str.slice(1) : "";
 }
+/**
+ * @param {string} str
+ * @returns {string}
+ */
 function lowerFirst(str) {
   return str ? str[0].toLowerCase() + str.slice(1) : "";
 }

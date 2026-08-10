@@ -206,6 +206,10 @@ var _ROOT_FOLDER_RE = /^\/([A-Za-z]:)?$/;
 var _EXTNAME_RE = /.(\.[^./]+|\.)$/;
 var _PATH_ROOT_RE = /^[/\\]|^[a-zA-Z]:[/\\]/;
 var sep = "/";
+/**
+ * @param {string} path
+ * @returns {string}
+ */
 var normalize = function(path) {
   if (path.length === 0) {
     return ".";
@@ -341,18 +345,35 @@ function normalizeString(path, allowAboveRoot) {
   }
   return res;
 }
+/**
+ * @param {string} p
+ * @returns {boolean}
+ */
 var isAbsolute = function(p) {
   return _IS_ABSOLUTE_RE.test(p);
 };
+/**
+ * @param {string} p
+ * @returns {string}
+ */
 var toNamespacedPath = function(p) {
   return normalizeWindowsPath(p);
 };
+/**
+ * @param {string} p
+ * @returns {string}
+ */
 var extname = function(p) {
   if (p === "..")
     return "";
   const match = _EXTNAME_RE.exec(normalizeWindowsPath(p));
   return match && match[1] || "";
 };
+/**
+ * @param {string} from
+ * @param {string} to
+ * @returns {string}
+ */
 var relative = function(from, to) {
   const _from = resolve(from).replace(_ROOT_FOLDER_RE, "$1").split("/");
   const _to = resolve(to).replace(_ROOT_FOLDER_RE, "$1").split("/");
@@ -369,6 +390,10 @@ var relative = function(from, to) {
   }
   return [..._from.map(() => ".."), ..._to].join("/");
 };
+/**
+ * @param {string} p
+ * @returns {string}
+ */
 var dirname = function(p) {
   const segments = normalizeWindowsPath(p).replace(/\/$/, "").split("/").slice(0, -1);
   if (segments.length === 1 && _DRIVE_LETTER_RE.test(segments[0])) {
@@ -405,6 +430,11 @@ var parse = function(p) {
     name: base.slice(0, base.length - extension.length)
   };
 };
+/**
+ * @param {string} path
+ * @param {string} pattern
+ * @returns {boolean}
+ */
 var matchesGlob = (path, pattern) => {
   return zeptomatch(pattern, normalize(path));
 };
