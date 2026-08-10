@@ -8,6 +8,11 @@ function isUppercase(char = "") {
   }
   return char !== char.toLowerCase();
 }
+/**
+ * @param {string} str
+ * @param {ReadonlyArray<string>} [separators]
+ * @returns {string[]}
+ */
 function splitByCase(str, separators) {
   const splitters = separators ?? STR_SPLITTERS;
   const parts = [];
@@ -68,12 +73,25 @@ function pascalCase(str, opts) {
 function camelCase(str, opts) {
   return lowerFirst(pascalCase(str || "", opts));
 }
+/**
+ * @param {string | ReadonlyArray<string>} str
+ * @param {string} [joiner]
+ * @returns {string}
+ */
 function kebabCase(str, joiner) {
   return str ? (Array.isArray(str) ? str : splitByCase(str)).map((p) => p.toLowerCase()).join(joiner ?? "-") : "";
 }
+/**
+ * @param {string | ReadonlyArray<string>} str
+ * @returns {string}
+ */
 function snakeCase(str) {
   return kebabCase(str || "", "_");
 }
+/**
+ * @param {string | ReadonlyArray<string>} str
+ * @returns {string}
+ */
 function flatCase(str) {
   return kebabCase(str || "", "");
 }

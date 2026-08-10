@@ -239,6 +239,10 @@ var normalize = function(path) {
   }
   return isPathAbsolute && !isAbsolute(path) ? `/${path}` : path;
 };
+/**
+ * @param {...string} segments
+ * @returns {string}
+ */
 var join = function(...segments) {
   let path = "";
   for (const seg of segments) {
@@ -266,6 +270,10 @@ function cwd() {
   }
   return "/";
 }
+/**
+ * @param {...string} arguments_
+ * @returns {string}
+ */
 var resolve = function(...arguments_) {
   arguments_ = arguments_.map((argument) => normalizeWindowsPath(argument));
   let resolvedPath = "";
@@ -406,6 +414,11 @@ var format = function(p) {
   const segments = [p.root, p.dir, p.base ?? (p.name ?? "") + ext].filter(Boolean);
   return normalizeWindowsPath(p.root ? resolve(...segments) : segments.join("/"));
 };
+/**
+ * @param {string} p
+ * @param {string} [extension]
+ * @returns {string}
+ */
 var basename = function(p, extension) {
   const segments = normalizeWindowsPath(p).split("/");
   let lastSegment = "";

@@ -163,6 +163,13 @@ function _genDynamicImportAttributes(options = {}) {
   }
   return "";
 }
+/**
+ * @param {string[]} lines
+ * @param {string} [indent]
+ * @param {string} [delimiters]
+ * @param {boolean} [withComma]
+ * @returns {string}
+ */
 function wrapInDelimiters(lines, indent = "", delimiters = "{}", withComma = true) {
   if (lines.length === 0) {
     return delimiters;

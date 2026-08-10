@@ -104,6 +104,10 @@ var ENC_CURLY_CLOSE_RE = /%7d/gi;
 var ENC_SPACE_RE = /%20/gi;
 var ENC_SLASH_RE = /%2f/gi;
 var ENC_ENC_SLASH_RE = /%252f/gi;
+/**
+ * @param {string | number} text
+ * @returns {string}
+ */
 function encode(text) {
   return encodeURI("" + text).replace(ENC_PIPE_RE, "|");
 }
@@ -120,12 +124,20 @@ function encodeQueryValue(input) {
 function encodeQueryKey(text) {
   return encodeQueryValue(text).replace(EQUAL_RE, "%3D");
 }
+/**
+ * @param {string | number} text
+ * @returns {string}
+ */
 function encodePath(text) {
   return encode(text).replace(HASH_RE, "%23").replace(IM_RE, "%3F").replace(ENC_ENC_SLASH_RE, "%2F").replace(AMPERSAND_RE, "%26").replace(PLUS_RE, "%2B");
 }
 function encodeParam(text) {
   return encodePath(text).replace(SLASH_RE, "%2F");
 }
+/**
+ * @param {string | number} [text]
+ * @returns {string}
+ */
 function decode(text = "") {
   try {
     return decodeURIComponent("" + text);
@@ -204,6 +216,11 @@ var JOIN_LEADING_SLASH_RE = /^\.?\//;
 function isRelative(inputString) {
   return ["./", "../"].some((string_) => inputString.startsWith(string_));
 }
+/**
+ * @param {string} inputString
+ * @param {boolean} [opts]
+ * @returns {boolean}
+ */
 function hasProtocol(inputString, opts = {}) {
   if (typeof opts === "boolean") {
     opts = { acceptRelative: opts };
@@ -216,12 +233,22 @@ function hasProtocol(inputString, opts = {}) {
 function isScriptProtocol(protocol) {
   return !!protocol && PROTOCOL_SCRIPT_RE.test(protocol);
 }
+/**
+ * @param {string} [input]
+ * @param {boolean} [respectQueryAndFragment]
+ * @returns {boolean}
+ */
 function hasTrailingSlash(input = "", respectQueryAndFragment) {
   if (!respectQueryAndFragment) {
     return input.endsWith("/");
   }
   return TRAILING_SLASH_RE.test(input);
 }
+/**
+ * @param {string} [input]
+ * @param {boolean} [respectQueryAndFragment]
+ * @returns {string}
+ */
 function withoutTrailingSlash(input = "", respectQueryAndFragment) {
   if (!respectQueryAndFragment) {
     return (hasTrailingSlash(input) ? input.slice(0, -1) : input) || "/";
@@ -240,6 +267,11 @@ function withoutTrailingSlash(input = "", respectQueryAndFragment) {
   const cleanPath = s0.endsWith("/") ? s0.slice(0, -1) : s0;
   return (cleanPath || "/") + (s2.length > 0 ? `?${s2.join("?")}` : "") + fragment;
 }
+/**
+ * @param {string} [input]
+ * @param {boolean} [respectQueryAndFragment]
+ * @returns {string}
+ */
 function withTrailingSlash(input = "", respectQueryAndFragment) {
   if (!respectQueryAndFragment) {
     return input.endsWith("/") ? input : input + "/";
@@ -260,15 +292,31 @@ function withTrailingSlash(input = "", respectQueryAndFragment) {
   const [s0, ...s2] = path.split("?");
   return s0 + "/" + (s2.length > 0 ? `?${s2.join("?")}` : "") + fragment;
 }
+/**
+ * @param {string} [input]
+ * @returns {boolean}
+ */
 function hasLeadingSlash(input = "") {
   return input.startsWith("/");
 }
+/**
+ * @param {string} [input]
+ * @returns {string}
+ */
 function withoutLeadingSlash(input = "") {
   return (hasLeadingSlash(input) ? input.slice(1) : input) || "/";
 }
+/**
+ * @param {string} [input]
+ * @returns {string}
+ */
 function withLeadingSlash(input = "") {
   return hasLeadingSlash(input) ? input : "/" + input;
 }
+/**
+ * @param {string} [input]
+ * @returns {string}
+ */
 function cleanDoubleSlashes(input = "") {
   return input.split("://").map((string_) => string_.replace(/\/{2,}/g, "/")).join("://");
 }
@@ -341,6 +389,11 @@ function isEmptyURL(url) {
 function isNonEmptyURL(url) {
   return url && url !== "/";
 }
+/**
+ * @param {string} base
+ * @param {...string} input
+ * @returns {string}
+ */
 function joinURL(base, ...input) {
   let url = base || "";
   for (const segment of input.filter((url2) => isNonEmptyURL(url2))) {
@@ -445,6 +498,11 @@ function normalizeURL(input) {
   parsed.search = stringifyQuery(parseQuery(parsed.search));
   return stringifyParsedURL(parsed);
 }
+/**
+ * @param {string} [base]
+ * @param {...string} inputs
+ * @returns {string}
+ */
 function resolveURL(base = "", ...inputs) {
   if (typeof base !== "string") {
     throw new TypeError(

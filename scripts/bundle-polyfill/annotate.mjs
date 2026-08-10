@@ -33,14 +33,36 @@ const SIMPLE = new Set([
   "Uint8Array",
 ]);
 
+/** One type, in JSDoc spelling, or null if it has no faithful one.
+ *
+ * A union of expressible members is expressible, so this recurses rather
+ * than matching whole strings — `string | readonly string[]` is common in
+ * these APIs and is exactly what JSDoc's union syntax is for. */
 function simpleType(node) {
   if (node === undefined) return null;
+  if (ts.isUnionTypeNode(node)) {
+    const members = node.types.map((t) => simpleType(t));
+    if (members.some((m) => m === null)) return null;
+    return [...new Set(members)].join(" | ");
+  }
+  if (ts.isParenthesizedTypeNode(node)) return simpleType(node.type);
   const text = node.getText().replace(/\s+/g, " ").trim();
   if (SIMPLE.has(text)) return text;
-  // `readonly T[]` and `T[]` marshal identically; JSDoc has no readonly.
+  // JSDoc has no `readonly` modifier; ReadonlyArray<T> says the same thing
+  // and TypeScript accepts it in a JSDoc type position.
   const ro = /^readonly (\w+)\[\]$/.exec(text);
-  if (ro !== null && SIMPLE.has(`${ro[1]}[]`)) return `${ro[1]}[]`;
+  if (ro !== null && SIMPLE.has(`${ro[1]}[]`)) return `ReadonlyArray<${ro[1]}>`;
   return null;
+}
+
+/** The element type a rest parameter accepts: `...paths: string[]` takes
+ * strings, and JSDoc spells that `{...string}`. */
+function restElementType(node) {
+  if (node === undefined) return null;
+  if (ts.isArrayTypeNode(node)) return simpleType(node.elementType);
+  const text = node.getText().replace(/\s+/g, " ").trim();
+  const m = /^(?:readonly )?(\w+)\[\]$/.exec(text);
+  return m !== null && SIMPLE.has(m[1]) ? m[1] : null;
 }
 
 /**
@@ -62,13 +84,19 @@ export function signaturesFromDts(dtsText, fileName = "polyfill.d.ts") {
     }
     const params = [];
     for (const p of sig.parameters) {
-      // An optional or rest parameter changes the arity a caller may use,
-      // which JSDoc can express but the marshalling boundary cannot; leave
-      // the whole function alone rather than describe it half-truthfully.
-      if (p.questionToken !== undefined || p.dotDotDotToken !== undefined) return void out.set(name, null);
-      const type = simpleType(p.type);
-      if (type === null || !ts.isIdentifier(p.name)) return void out.set(name, null);
-      params.push({ name: p.name.text, type });
+      if (!ts.isIdentifier(p.name)) return void out.set(name, null);
+      // Optional and rest parameters both have a JSDoc spelling, and both
+      // are worth carrying: such a function will not cross the component
+      // boundary itself, but typing it is what lets a CALLER compile.
+      const rest = p.dotDotDotToken !== undefined;
+      const type = rest ? restElementType(p.type) : simpleType(p.type);
+      if (type === null) return void out.set(name, null);
+      params.push({
+        name: p.name.text,
+        type,
+        rest,
+        optional: p.questionToken !== undefined || p.initializer !== undefined,
+      });
     }
     const returns = simpleType(sig.type);
     if (returns === null) return void out.set(name, null);
@@ -144,11 +172,21 @@ export function annotateBundle(code, signatures) {
     // arity — a mismatch means the two have drifted, and guessing which
     // parameter is which is exactly the lie to avoid.
     if (binding.fn.parameters.length !== sig.params.length) continue;
-    const names = binding.fn.parameters.map((p) => (ts.isIdentifier(p.name) ? p.name.text : null));
+    const params = binding.fn.parameters;
+    const names = params.map((p) => (ts.isIdentifier(p.name) ? p.name.text : null));
     if (names.some((n) => n === null)) continue;
+    // ...and when they agree on WHICH parameter is the rest one. A rest
+    // marker on the wrong side describes a different function.
+    if (params.some((p, i) => (p.dotDotDotToken !== undefined) !== sig.params[i].rest)) continue;
 
     const lines = ["/**"];
-    sig.params.forEach((p, i) => lines.push(` * @param {${p.type}} ${names[i]}`));
+    sig.params.forEach((p, i) => {
+      // A default value in the bundle makes a parameter optional whatever
+      // the .d.ts says, and JSDoc marks that with brackets.
+      const optional = p.optional || params[i].initializer !== undefined;
+      const type = p.rest ? `...${p.type}` : p.type;
+      lines.push(` * @param {${type}} ${optional && !p.rest ? `[${names[i]}]` : names[i]}`);
+    });
     lines.push(` * @returns {${sig.returns}}`, " */", "");
     edits.push({ pos: binding.pos, text: lines.join("\n") });
   }

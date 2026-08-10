@@ -187,15 +187,27 @@ function prefixStorage(storage, base) {
   };
   return nsStorage;
 }
+/**
+ * @param {string} [key]
+ * @returns {string}
+ */
 function normalizeKey(key) {
   if (!key) {
     return "";
   }
   return key.split("?")[0]?.replace(/[/\\]/g, ":").replace(/:+/g, ":").replace(/^:|:$/g, "") || "";
 }
+/**
+ * @param {...string} keys
+ * @returns {string}
+ */
 function joinKeys(...keys) {
   return normalizeKey(keys.join(":"));
 }
+/**
+ * @param {string} [base]
+ * @returns {string}
+ */
 function normalizeBaseKey(base) {
   base = normalizeKey(base);
   return base ? base + ":" : "";
