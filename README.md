@@ -286,8 +286,22 @@ What crosses the boundary is limited to what the canonical ABI carries
 cheaply — `number` (as `f64`), `boolean`, `string`, and `Uint8Array`. An
 export taking a callback, a class instance, or a closure cannot cross, nor
 can an `async` or generic one; each is named on stderr as it is left out,
-so the interface is never a silent subset. The win concentrates in leaf
-modules doing computation.
+so the interface is never a silent subset.
+
+**Crossing is necessary, not sufficient.** Moving a call across costs
+roughly 9µs per KB of string or list payload, so it pays only where the
+call does substantially more work than that. Two functions of the same
+shape, measured:
+
+| | payload | result |
+|---|---|---|
+| `sha1(bytes) -> bytes` | 1 KiB in, 20 B out | **11.3× faster** |
+| `layout(string, string) -> string` | ~20 B in, 2.4 KB out | **11.9× slower** |
+
+`sha1` does ~4200µs of work per call and pays ~9µs to cross. `layout`
+builds a template string in ~2µs and pays ~18µs. Use `scriptc boundary`
+to find candidates, then measure — the win concentrates in leaf modules
+whose work per call dwarfs their payload.
 
 ### Declaring the boundary explicitly
 
