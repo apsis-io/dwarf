@@ -16,8 +16,11 @@
 //!    plugged into that import (see `plug_scriptc`), leaving nothing of
 //!    the seam in the final component's imports.
 //!
-//! The preview1 adapter scriptc needs is the one already compiled into
-//! dwarf, so callers configure nothing beyond naming the profile.
+//! scriptc's wasm target is wasm32-wasip3, whose link runs
+//! wasm-component-ld: the component arrives already componentized and
+//! importing WASI directly, so no preview1 adapter is involved on this
+//! side at all. dwarf's own embedded adapter serves dwarf's own module.
+//! Callers configure nothing beyond naming the profile.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -58,16 +61,6 @@ pub fn build(source: &Path, scriptc_bin: &Path, work_dir: &Path) -> Result<Scrip
     // A profile is passed by flag; a module is the positional input.
     let is_profile = source.extension().is_some_and(|e| e == "json");
 
-    // scriptc needs the preview1 reactor adapter, and dwarf already embeds
-    // exactly the one it uses itself — so it hands over its own copy
-    // rather than asking the caller to go find a matching one.
-    let adapter_path = work_dir.join("wasi_snapshot_preview1.reactor.wasm");
-    std::fs::write(
-        &adapter_path,
-        crate::WASI_SNAPSHOT_PREVIEW1_REACTOR_ADAPTER,
-    )
-    .with_context(|| format!("failed to write {}", adapter_path.display()))?;
-
     // No --wit-package: scriptc defaults it to scriptc:<profile name>, and
     // the generated WIT below is where dwarf learns what that was.
     let archive = work_dir.join(format!("{stem}.lib.a"));
@@ -80,12 +73,11 @@ pub fn build(source: &Path, scriptc_bin: &Path, work_dir: &Path) -> Result<Scrip
         .arg(source)
         .arg("-o")
         .arg(&archive)
-        // A component is a wasm build, and zig is the driver with the
-        // cross sysroots; scriptc rejects the combination otherwise.
-        .env("SCRIPTC_CC", "zigcc")
-        .env("SCRIPTC_TARGET", "wasm32-wasi")
-        .arg("--wasi-adapter")
-        .arg(&adapter_path)
+        // scriptc's one wasm target. Its link runs wasm-component-ld, so
+        // the component comes out componentized and needs no preview1
+        // adapter from us — dwarf's own embedded adapter is for dwarf's
+        // own module, and never crosses over here.
+        .env("SCRIPTC_TARGET", "wasm32-wasip3")
         .output()
         .with_context(|| {
             format!(
