@@ -207,3 +207,92 @@ fn inferred_boundary_needs_no_profile() {
         .unwrap()
         .run();
 }
+
+/// Records across the seam: scriptc derives a WIT `record` from the
+/// TypeScript shape, dwarf plugs the component in, and JavaScript sees a
+/// plain object on both sides. The three tests above cross only scalars,
+/// strings and a list<u8>, so nothing here was covered by them — and the
+/// interesting half is INBOUND, where the canonical ABI flattens the
+/// record into core params and the entry has to rebuild it.
+const RECORD_WIT: &str = r#"
+    package test:records;
+    world records {
+        export locate: func(label: string) -> string;
+        export span: func() -> f64;
+    }
+"#;
+
+/// A record out, a record in, and a NESTED record — plus two record
+/// parameters in one call, which is where a flattening that got its field
+/// order from the wrong place would show up.
+const RECORD_TS: &str = r#"
+    export interface Point { x: number; y: number; label: string }
+    export interface Box { origin: Point; w: number }
+
+    export function makePoint(label: string): Point {
+      return { x: 3, y: 4, label };
+    }
+    export function describe(p: Point): string {
+      return `${p.label}@${p.x},${p.y}`;
+    }
+    export function makeBox(): Box {
+      return { origin: { x: 1, y: 2, label: "o" }, w: 10 };
+    }
+    export function boxSpan(b: Box, p: Point): number {
+      return b.w + b.origin.x + p.x;
+    }
+"#;
+
+const RECORD_JS: &str = r#"
+    import ops from "scriptc:records/ops";
+
+    export function locate(label) {
+      const p = ops.makePoint(label);
+      return `${ops.describe(p)} nested=${ops.makeBox().origin.label}`;
+    }
+
+    export function span() {
+      return ops.boxSpan(ops.makeBox(), ops.makePoint("p"));
+    }
+"#;
+
+/// Records across the seam, both directions and nested.
+///
+/// This test found two scriptc bugs on the way in, which is the argument
+/// for it existing: the shim dropped a record-returning export's own
+/// arguments (clang refused the call), and the record-return path handed
+/// the result arena a string BORROWED from the record and then released
+/// the record — a use-after-free the next call's arena reset walked into.
+/// Neither was reachable from scriptc's own component lane, which runs one
+/// wasmtime --invoke per call and so never makes a SECOND call on a live
+/// instance. Composition does, on every call.
+#[test]
+fn records_cross_the_seam_both_directions() {
+    if !scriptc_available() {
+        eprintln!("skipping: set DWARF_TEST_SCRIPTC to a scriptc executable");
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let module_dir = dir.path().join("records");
+    fs::create_dir_all(&module_dir).unwrap();
+    let entry = module_dir.join("records.ts");
+    fs::write(&entry, RECORD_TS).unwrap();
+
+    TestCase::new()
+        .wit(RECORD_WIT)
+        .script(RECORD_JS)
+        // No profile: the boundary is inferred, records and all.
+        .scriptc(entry)
+        // Out and back in: makePoint's record is handed straight to
+        // describe, so a field that survived only one direction fails here.
+        .expect_call(
+            "locate",
+            vec![Val::String("engi".into())],
+            Val::String("engi@3,4 nested=o".into()),
+        )
+        // Two record params in one call, one of them nested: 10 + 1 + 3.
+        .expect_call("span", vec![], Val::Float64(14.0))
+        .build()
+        .unwrap()
+        .run();
+}
