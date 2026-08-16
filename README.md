@@ -174,6 +174,60 @@ which dwarf represents with a tagged `{ tag, val }` form rather than plain
 `null`) aren't specifically handled and may still read as jco's own
 convention.
 
+## Reactors: instantiate once, call many
+
+Every ordinary `dwarf --wit x.wit --js x.js` build already produces what the
+component-model community calls a **reactor** — a component that exports its
+own world and is instantiated once, then called repeatedly. The only other
+shape is a **command**: a component exporting `wasi:cli/run`, which a host
+runs to completion once (the `wasi:cli/command` world, where the implicit
+`run` export needs `export function run() { ... }` in your JS).
+
+The reactor/command *label* is a preview-1 core-module distinction —
+`_initialize` versus `_start` — and dwarf still links the p1 reactor adapter
+because its QuickJS module is built against p1. At the component level the
+label carries no meaning and WASI 0.3 has no `wasi:cli/reactor` world: a
+component simply exports what its world declares. What survives into p3 is
+the **lifecycle**, and that is worth knowing precisely:
+
+| | |
+| --- | --- |
+| the JS module's top level | runs at **build** time, under Wizer, and is snapshotted |
+| a fresh instance | starts from that snapshot, never from another instance's state |
+| state between calls | persists for the life of one instance |
+| `_initialize` | runs **once per instance**, before the first exported call |
+| teardown | there is none — see below |
+
+```js
+let hits = 0;              // snapshotted at build time: every instance starts at 0
+
+export function _initialize() {
+  // Per-instance setup that CANNOT be snapshotted: a handle, a clock read,
+  // configuration pulled through an imported interface.
+}
+
+export function handle(req) {
+  hits += 1;               // persists across calls on this instance
+  return `${hits}`;
+}
+```
+
+`_initialize` cannot collide with a WIT export: WIT identifiers are
+lowercase kebab-case and reach JS as camelCase, so no export is ever named
+`_initialize`. If your module does not export it, nothing runs. If it
+throws, the call traps rather than serving traffic from a half-built
+instance.
+
+**There is no teardown hook**, because the component model gives a guest no
+destructor callback — an instance is simply dropped by the host. If you need
+explicit cleanup, declare it in your world as an ordinary export
+(`export shutdown: func();`) and have the host call it; that needs nothing
+from dwarf.
+
+A Periapsis *Comet* is exactly this shape: a reactor exporting its own
+interface rather than `wasi:cli/run`, so it is written and built the way
+this section describes.
+
 ## Using Imports
 
 WIT imports are available as ES module imports using their fully-qualified WIT

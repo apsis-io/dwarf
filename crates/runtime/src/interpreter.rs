@@ -9,10 +9,58 @@ use crate::trivia::{fn_lookup, iface_lookup};
 use crate::{QjsCallContext, with_ctx};
 use crate::{abi, futures, streams};
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use heck::ToUpperCamelCase;
 use rquickjs::function::Constructor;
 use rquickjs::{JsLifetime, Value};
 use wit_dylib_ffi::{ExportFunction, Interpreter, Resource, Wit};
+
+/// Has this INSTANCE run the reactor init hook yet?
+///
+/// A plain static, which is what makes it per-instance: it lives in linear
+/// memory, Wizer snapshots it as `false` (the hook has not run at build
+/// time), and every instantiation starts from that snapshot with its own
+/// copy. Single-threaded guest, so Relaxed is all the ordering there is.
+static REACTOR_INIT_DONE: AtomicBool = AtomicBool::new(false);
+
+/// Run the JS module's `_initialize` export once per instance, before the
+/// first exported function is called.
+///
+/// A reactor is instantiated once and called many times, and the JS module's
+/// top level does NOT run per instance — Wizer executes it at build time and
+/// snapshots the result, which is the whole point (startup cost is paid
+/// once). So there was no place to put work that must happen per instance
+/// and cannot be snapshotted: reading configuration through an imported
+/// interface, opening a handle, seeding from the host clock.
+///
+/// `_initialize` is that place. The name cannot collide with a WIT export:
+/// WIT identifiers are lowercase kebab-case and reach JS as camelCase, so no
+/// export can ever be named `_initialize`. It also matches the core-wasm
+/// reactor convention, which is where the idea comes from.
+///
+/// Hooked into `export_start` rather than `Interpreter::initialize` because
+/// the latter runs from `__wasm_call_ctors` — i.e. at Wizer time, where its
+/// effects would be snapshotted rather than per-instance.
+fn run_reactor_init_once() {
+    if REACTOR_INIT_DONE.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    with_ctx(|ctx| {
+        let exports = ctx
+            .user_module()
+            .exports(ctx)
+            .expect("user module exports not found");
+        let Ok(hook) = exports.get::<_, rquickjs::Function>("_initialize") else {
+            return; // not exported: nothing to run, which is the common case
+        };
+        if let Err(err) = hook.call::<_, ()>(()) {
+            // Loud, like every other guest-side failure here: a reactor whose
+            // setup failed must not go on to serve calls as if it had not.
+            panic!("`_initialize` threw: {}", describe_call_error(ctx, err));
+        }
+    });
+}
 
 /// Newtype wrapper for `Wit` so it can be stored as rquickjs userdata.
 #[derive(JsLifetime, Clone, Copy)]
@@ -51,6 +99,7 @@ impl Interpreter for QjsInterpreter {
     }
 
     fn export_start<'a>(_wit: Wit, _func: ExportFunction) -> Box<Self::CallCx<'a>> {
+        run_reactor_init_once();
         Box::new(QjsCallContext::default())
     }
 
