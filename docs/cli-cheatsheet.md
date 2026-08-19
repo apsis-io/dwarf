@@ -34,6 +34,9 @@ wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
 | `--opt-size` | | | off | Embed the size-optimized built-in runtime |
 | `--sync` | | | off | Embed the non-async built-in runtime (no component-model-async) |
 | `--runtime` | | path | | Custom QuickJS runtime `.wasm` (overrides `--opt-size`/`--sync`) |
+| `--optimize` | | path | *(repeatable)* | Compile a TypeScript module statically with scriptc and plug it in; the boundary is DERIVED from its exported signatures. JS imports it as `scriptc:<name>/ops` |
+| `--scriptc` | | path | *(repeatable)* | Same, but from a scriptc profile that declares the boundary explicitly instead of deriving it |
+| `--scriptc-bin` | | path | `scriptc` on PATH | The scriptc executable `--optimize`/`--scriptc` invoke |
 
 `--opt-size`/`--sync` are mutually exclusive with `--runtime`, combinable with each other.
 
@@ -57,6 +60,16 @@ dwarf --wit wit/ --js main.js --opt-size --minify -o out.wasm
 
 # No component-model-async (older/plain wasmtime hosts)
 dwarf --wit wit/ --js main.js --sync -o out.wasm
+
+# Compile a hot TypeScript module with scriptc and plug it in (no engine in
+# it; JS imports it as `scriptc:hot/ops`). The seam does not survive into
+# the output component.
+dwarf --wit wit/ --js main.js --optimize src/hot.ts -o out.wasm
+
+# ...from a profile that declares the boundary explicitly, and with a
+# scriptc that is not the one on PATH
+dwarf --wit wit/ --js main.js --scriptc src/hot.profile.json \
+  --scriptc-bin ./node_modules/.bin/scriptc -o out.wasm
 
 # Sandbox: no real host capabilities at all
 dwarf --wit wit/ --js main.js --stub-wasi -o out.wasm
@@ -151,6 +164,7 @@ README's [WIT Type Mappings](../README.md#wit-type-mappings) and
 |---|---|
 | `DWARF_POLYFILLS_DIR` | Read polyfill `.js`/`.d.ts` fresh from disk instead of the compiled-in copy — live edits, no rebuild. Dev only; unset = self-contained binary. |
 | `WASM_OPT` | Path to a `wasm-opt` binary, checked before PATH/auto-download (build-time, not runtime) |
+| `SOURCE_DATE_EPOCH` | The wall clock the guest sees while being snapshotted (seconds since the Unix epoch; default 0). The one deliberate input to an otherwise byte-reproducible build — see [Reproducible builds](#reproducible-builds) |
 
 ## Cargo features (building dwarf itself)
 
@@ -163,8 +177,43 @@ README's [WIT Type Mappings](../README.md#wit-type-mappings) and
 cargo build --release --features opt-size
 ```
 
+## Reproducible builds
+
+Same inputs, same bytes. Wizer freezes the initialized guest heap into the
+artifact, so dwarf pins what the guest can observe while being snapshotted:
+the wall clock (QuickJS seeds `Math.random`'s state from it), `wasi:random`,
+and the module root. Only the snapshot sees any of this — the component you
+ship reads the host's real clock and randomness.
+
+```bash
+dwarf --wit hello.wit --js hello.js -o a.wasm
+dwarf --wit hello.wit --js hello.js -o b.wasm
+cmp a.wasm b.wasm                      # identical, from any directory
+
+SOURCE_DATE_EPOCH=1700000000 dwarf ... # the one knob; same value, same bytes
+```
+
+## Reactor lifecycle
+
+Every build is a reactor: instantiate once, call exports repeatedly. (A
+*command* is the other shape — a component exporting `wasi:cli/run`, whose
+world needs `export function run() { ... }`.)
+
+| | |
+|---|---|
+| JS module top level | runs at **build** time under Wizer, snapshotted |
+| a fresh instance | starts from that snapshot, never from another instance |
+| state between calls | persists for the life of one instance |
+| `export function _initialize()` | runs **once per instance**, before the first exported call — the place for setup that cannot be snapshotted |
+| teardown | none; the component model gives a guest no destructor. Declare `export shutdown: func();` in your world and have the host call it |
+
 ## Gotchas
 
+- **`--module-root` defaults to the ENTRY'S OWN DIRECTORY**, not the current
+  working directory — otherwise the build would depend on where it was run
+  from (see [Reproducible builds](#reproducible-builds)). An entry that
+  imports from *above* its own directory must name the wider root with the
+  flag; without it those imports fail as "outside the module root".
 - **Vendoring** only applies when `--wit` is a *directory* (needs a `deps/` to
   populate). A single WIT file with missing deps is always an error.
 - **Dynamic `import()`**: only works if reached during Wizer's build-time
