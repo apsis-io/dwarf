@@ -43,6 +43,7 @@ tempfile = "3.13"
 wasi-preview1-component-adapter-provider = "46"
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
+rand.workspace = true
 wasmtime-wasi-io = "46"
 wasmtime-wizer = { version = "46", features = ["component-model", "wasmtime"] }
 wac-graph = "0.10"

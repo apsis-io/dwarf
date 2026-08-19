@@ -16,6 +16,8 @@ use wasi_preview1_component_adapter_provider::WASI_SNAPSHOT_PREVIEW1_REACTOR_ADA
 use wasmtime::component::{Component as WasmtimeComponent, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
+use rand::SeedableRng as _;
+use rand::rngs::StdRng;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
 
@@ -280,6 +282,46 @@ fn runtime_wasm(runtime: Runtime<'_>) -> &[u8] {
     }
 }
 
+/// The build-time entropy seed. Any constant works; this one is fixed so
+/// two builds of one input agree.
+const SNAPSHOT_SEED: u64 = 0x6477_6172_665f_3031; // "dwarf_01"
+
+/// The wall clock the guest sees WHILE BEING SNAPSHOTTED.
+///
+/// Honours `SOURCE_DATE_EPOCH` (the reproducible-builds convention) so a
+/// caller who wants a specific stamp can set one, and defaults to the Unix
+/// epoch otherwise. Only the snapshot sees this; the built component reads
+/// the host's real clock.
+struct FixedWallClock;
+
+impl wasmtime_wasi::clocks::HostWallClock for FixedWallClock {
+    fn resolution(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(1)
+    }
+
+    fn now(&self) -> std::time::Duration {
+        let secs = std::env::var("SOURCE_DATE_EPOCH")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        std::time::Duration::from_secs(secs)
+    }
+}
+
+/// The monotonic clock during the snapshot: frozen. A guest that reads it
+/// twice sees no elapsed time, which is what makes the reading reproducible.
+struct FixedMonotonicClock;
+
+impl wasmtime_wasi::clocks::HostMonotonicClock for FixedMonotonicClock {
+    fn resolution(&self) -> u64 {
+        1
+    }
+
+    fn now(&self) -> u64 {
+        0
+    }
+}
+
 async fn wizer_init(
     component: &[u8],
     shim: &str,
@@ -294,6 +336,30 @@ async fn wizer_init(
         .stdin(MemoryInputPipe::new(Bytes::new()))
         .stdout(stdout.clone())
         .stderr(stderr.clone())
+        // A REPRODUCIBLE snapshot needs a reproducible build environment.
+        // Wizer runs the module here and freezes whatever it computed into
+        // linear memory, so any entropy the guest reads at init is baked
+        // into the artifact and two builds of one input differ.
+        //
+        // Two sources, both measured rather than guessed:
+        //
+        //   - QuickJS seeds `ctx->random_state` from `js__gettimeofday_us()`
+        //     (quickjs.c's js_random_init), so Math.random's state is the
+        //     wall clock at build time.
+        //   - Something in the guest reads `random_get` at init and caches
+        //     16 bytes — std's RandomState shape. The runtime's own maps are
+        //     already fixed-seed (DetHashMap), so this is a dependency's.
+        //
+        // Pinning both here is the narrow fix: it changes only what the
+        // guest observes while being snapshotted. Nothing about the RUNTIME
+        // behaviour of the built component changes — it gets the host's real
+        // clock and real randomness, because this context does not outlive
+        // the build.
+        .wall_clock(FixedWallClock)
+        .monotonic_clock(FixedMonotonicClock)
+        .secure_random(StdRng::seed_from_u64(SNAPSHOT_SEED))
+        .insecure_random(StdRng::seed_from_u64(SNAPSHOT_SEED))
+        .insecure_random_seed(SNAPSHOT_SEED as u128)
         .build();
 
     let table = ResourceTable::new();

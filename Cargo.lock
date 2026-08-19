@@ -900,6 +900,7 @@ dependencies = [
  "glob",
  "indexmap",
  "oxc_resolver",
+ "rand",
  "regex",
  "tar",
  "tempfile",

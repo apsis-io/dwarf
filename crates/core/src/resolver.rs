@@ -126,16 +126,26 @@ impl Resolver {
     }
 }
 
+/// The implicit module root: the ENTRY'S OWN DIRECTORY, and deliberately
+/// not the process's current directory.
+///
+/// It used to be the cwd whenever the entry lived underneath it, falling
+/// back to the entry's parent otherwise. That made the build depend on
+/// where it was invoked from rather than on its inputs: the root decides
+/// each module's guest-visible path (`guest_absolute_path`), so the same
+/// entry built from the repository root and from /tmp produced
+/// `/examples/hello.js` and `/hello.js` respectively. Different strings,
+/// different allocation sizes, a different heap for Wizer to snapshot —
+/// two builds of one input differing by 32 bytes, which is exactly what
+/// reproducibility is not.
+///
+/// The entry's directory is the same answer from anywhere. A build that
+/// needs a WIDER root — an entry in `src/` importing `../shared/x.js` —
+/// says so with `--module-root`, which is an input like any other and
+/// therefore reproducible. That is a narrower default than before: what
+/// used to work implicitly by being run from the right directory now needs
+/// the flag, and says so with the "outside the module root" error.
 fn default_module_root(entry: &Path) -> Result<PathBuf> {
-    let cwd = std::env::current_dir()
-        .context("failed to read current directory")?
-        .canonicalize()
-        .context("failed to resolve current directory")?;
-
-    if entry.starts_with(&cwd) {
-        return Ok(cwd);
-    }
-
     entry
         .parent()
         .map(Path::to_path_buf)

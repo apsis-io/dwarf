@@ -174,6 +174,38 @@ which dwarf represents with a tagged `{ tag, val }` form rather than plain
 `null`) aren't specifically handled and may still read as jco's own
 convention.
 
+## Reproducible builds
+
+The same inputs produce a byte-identical component. Wizer freezes the
+initialized guest heap into the artifact, so anything the guest observes
+while being snapshotted is baked in — which makes reproducibility a property
+of the *build environment*, not just of the code. dwarf pins that
+environment:
+
+| pinned | why |
+| --- | --- |
+| the wall clock | QuickJS seeds `ctx->random_state` from `js__gettimeofday_us()`, so `Math.random`'s state was the build time |
+| `wasi:random` | something in the guest caches 16 bytes of it at init (std's `RandomState` shape); the runtime's own maps were already fixed-seed |
+| the implicit module root | it was the process's **cwd**, and the root decides each module's guest-visible path — so the same entry built from two directories differed |
+
+Only the snapshot sees any of this. The component you ship reads the host's
+real clock and real randomness at run time; nothing about its behaviour
+changes.
+
+**`SOURCE_DATE_EPOCH`** is the one deliberate knob, following the
+[reproducible-builds](https://reproducible-builds.org/docs/source-date-epoch/)
+convention: set it and the snapshot's clock reads that instant, leave it and
+the clock reads the Unix epoch. The same value always gives the same bytes.
+
+```bash
+dwarf --wit hello.wit --js hello.js -o a.wasm
+dwarf --wit hello.wit --js hello.js -o b.wasm
+cmp a.wasm b.wasm && echo identical
+```
+
+`tests/deterministic.rs` guards this at the level a consumer cares about —
+the bytes — including that the working directory cannot change the output.
+
 ## Reactors: instantiate once, call many
 
 Every ordinary `dwarf --wit x.wit --js x.js` build already produces what the
