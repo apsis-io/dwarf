@@ -5,7 +5,7 @@
 //! QuickJS module is built against p1. At the COMPONENT level the label
 //! carries no meaning: a component exports what its world declares, and
 //! "command" is simply the world that exports `wasi:cli/run`. Everything
-//! else — every ordinary `dwarf --wit x.wit --js x.js` — is what people
+//! else — every ordinary `dwarf --wit x.wit --file x.js` — is what people
 //! call a reactor.
 //!
 //! What actually distinguishes one is the LIFECYCLE, and that is what these

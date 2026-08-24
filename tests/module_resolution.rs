@@ -59,7 +59,7 @@ fn a_symlinked_package_store_resolves() {
     let out = dir.path().join("out.wasm");
     dwarf_cmd()
         .args(["--wit", root.join("app.wit").to_str().unwrap()])
-        .args(["--js", root.join("app.js").to_str().unwrap()])
+        .args(["--file", root.join("app.js").to_str().unwrap()])
         .args(["--output", out.to_str().unwrap()])
         .assert()
         .success();
@@ -84,7 +84,7 @@ fn a_parent_escape_is_still_refused() {
     let out = dir.path().join("out.wasm");
     dwarf_cmd()
         .args(["--wit", root.join("app.wit").to_str().unwrap()])
-        .args(["--js", root.join("app.js").to_str().unwrap()])
+        .args(["--file", root.join("app.js").to_str().unwrap()])
         .args(["--output", out.to_str().unwrap()])
         .assert()
         .failure()

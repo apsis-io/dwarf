@@ -15,8 +15,8 @@
     "index.d.ts"
   ],
   "scripts": {
-    "build:debug": "napi build --manifest-path ../napi/Cargo.toml --platform --js index.js --dts index.d.ts -o .",
-    "build:release": "napi build --manifest-path ../napi/Cargo.toml --platform --js index.js --dts index.d.ts -o . --release",
+    "build:debug": "napi build --manifest-path ../napi/Cargo.toml --platform --file index.js --dts index.d.ts -o .",
+    "build:release": "napi build --manifest-path ../napi/Cargo.toml --platform --file index.js --dts index.d.ts -o . --release",
     "build": "npm run build:release",
     "test": "vitest run --dir ./test"
   },

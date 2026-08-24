@@ -33,9 +33,19 @@ pub struct CliArgs {
     #[arg(short, long)]
     pub wit: std::path::PathBuf,
 
-    /// Path to the JavaScript source file
-    #[arg(short, long)]
-    pub js: std::path::PathBuf,
+    /// Path to the source file (JavaScript; compile TypeScript to JS first)
+    ///
+    /// `--js`/`-j` remain accepted: the flag was renamed because the file it
+    /// points at is the build's input, and saying "js" in it made a
+    /// TypeScript project name the wrong language on every invocation.
+    #[arg(
+        short = 'f',
+        long = "file",
+        visible_alias = "js",
+        short_alias = 'j',
+        value_name = "PATH"
+    )]
+    pub file: std::path::PathBuf,
 
     /// Root directory exposed during Wizer for resolving JavaScript imports
     #[arg(long, value_name = "PATH")]
@@ -109,8 +119,8 @@ pub async fn run(args: Vec<String>) -> Result<()> {
     if !args.wit.exists() {
         anyhow::bail!("WIT file/directory not found: {}", args.wit.display());
     }
-    if !args.js.exists() {
-        anyhow::bail!("JavaScript file not found: {}", args.js.display());
+    if !args.file.exists() {
+        anyhow::bail!("Source file not found: {}", args.file.display());
     }
     if let Some(runtime_file) = &args.runtime
         && !runtime_file.exists()
@@ -123,8 +133,8 @@ pub async fn run(args: Vec<String>) -> Result<()> {
         anyhow::bail!("Module root not found: {}", module_root.display());
     }
 
-    let js_source = fs::read_to_string(&args.js)
-        .with_context(|| format!("failed to read JS file: {}", args.js.display()))?;
+    let js_source = fs::read_to_string(&args.file)
+        .with_context(|| format!("failed to read source file: {}", args.file.display()))?;
 
     let js_source = if args.minify {
         let allocator = Allocator::default();
@@ -154,7 +164,7 @@ pub async fn run(args: Vec<String>) -> Result<()> {
 
     println!("dwarf");
     println!("  WIT:    {}", display_path(&args.wit));
-    println!("  JS:     {}", args.js.display());
+    println!("  Source: {}", args.file.display());
     println!("  Output: {}", args.output.display());
 
     let runtime = match &args.runtime {
@@ -191,7 +201,7 @@ pub async fn run(args: Vec<String>) -> Result<()> {
         &ComponentizeOpts {
             wit_path: &args.wit,
             js_source: &js_source,
-            js_path: Some(&args.js),
+            js_path: Some(&args.file),
             module_root: args.module_root.as_deref(),
             world_name: args.world.as_deref(),
             stub_wasi: args.stub_wasi,

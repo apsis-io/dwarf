@@ -3,6 +3,7 @@
 //! resolution fails because a referenced package isn't vendored under
 //! `deps/` yet.
 
+use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Command;
 
@@ -118,30 +119,104 @@ fn annotate_syntax_hint(err: anyhow::Error) -> anyhow::Error {
     }
 }
 
+/// Runs `wkg wit fetch` for `wit_dir`.
+///
+/// The directory is POSITIONAL (`wkg wit fetch <DIR>`) as of wkg 0.16;
+/// earlier releases spelled it `--wit-dir`, which is what dwarf used to
+/// pass unconditionally. Against a current wkg that failed with
+/// "unexpected argument '--wit-dir' found" - a message about dwarf's own
+/// command line, surfaced to someone who had merely asked for a WIT
+/// dependency, with nothing to act on. Both spellings are tried now, the
+/// current one first, so neither a fresh install nor a pinned older one
+/// breaks.
 fn fetch_deps(wit_dir: &Path) -> Result<()> {
-    let output = Command::new("wkg")
-        .arg("wit")
-        .arg("fetch")
-        .arg("--wit-dir")
-        .arg(wit_dir)
-        .output();
+    let current = run_wkg_fetch(&[OsStr::new(wit_dir)])?;
+    if current.status.success() {
+        return Ok(());
+    }
 
-    let output = match output {
-        Ok(output) => output,
-        Err(io_err) if io_err.kind() == std::io::ErrorKind::NotFound => {
-            return Err(anyhow!("`wkg` is not installed"));
-        }
-        Err(io_err) => return Err(anyhow!("failed to run `wkg wit fetch`: {io_err}")),
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = String::from_utf8_lossy(&current.stderr).into_owned();
+    if !is_cli_usage_error(&stderr) {
         return Err(anyhow!(
             "`wkg wit fetch` exited with {}: {}",
-            output.status,
+            current.status,
             stderr.trim()
         ));
     }
 
-    Ok(())
+    let legacy = run_wkg_fetch(&[OsStr::new("--wit-dir"), OsStr::new(wit_dir)])?;
+    if legacy.status.success() {
+        return Ok(());
+    }
+
+    // Neither spelling was accepted: report the CURRENT one's error, since
+    // that is the CLI dwarf targets, and say the version is the suspect
+    // rather than leaving a raw argument-parsing message to be puzzled over.
+    Err(anyhow!(
+        "`wkg wit fetch` exited with {}: {}\n\
+         (dwarf tried both `wkg wit fetch <dir>` and the older `--wit-dir <dir>`; \
+         neither was accepted, which usually means an incompatible `wkg` - \
+         `cargo install wkg` to update, or pass --no-vendor and vendor deps by hand)",
+        current.status,
+        stderr.trim()
+    ))
+}
+
+fn run_wkg_fetch(dir_args: &[&OsStr]) -> Result<std::process::Output> {
+    match Command::new("wkg")
+        .arg("wit")
+        .arg("fetch")
+        .args(dir_args)
+        .output()
+    {
+        Ok(output) => Ok(output),
+        Err(io_err) if io_err.kind() == std::io::ErrorKind::NotFound => {
+            Err(anyhow!("`wkg` is not installed"))
+        }
+        Err(io_err) => Err(anyhow!("failed to run `wkg wit fetch`: {io_err}")),
+    }
+}
+
+/// Whether `wkg` rejected dwarf's COMMAND LINE rather than failing at the
+/// job itself - the signal that the other spelling is worth trying. A
+/// network or registry failure must not be retried this way: it would just
+/// fail twice and report the wrong cause.
+fn is_cli_usage_error(stderr: &str) -> bool {
+    let stderr = stderr.to_ascii_lowercase();
+    stderr.contains("unexpected argument")
+        || stderr.contains("unrecognized")
+        || stderr.contains("unknown option")
+        || (stderr.contains("usage:") && stderr.contains("error:"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_cli_usage_error;
+
+    #[test]
+    fn a_rejected_flag_is_a_usage_error() {
+        // Verbatim from wkg 0.16.1, which is how this was found.
+        assert!(is_cli_usage_error(
+            "error: unexpected argument '--wit-dir' found\n\nUsage: wkg wit fetch [OPTIONS] [DIR]"
+        ));
+        assert!(is_cli_usage_error("error: unrecognized subcommand 'fetch'"));
+    }
+
+    #[test]
+    fn a_failed_fetch_is_not_retried_as_one() {
+        // The retry exists to try the other spelling of the directory
+        // argument. Anything that got as far as talking to a registry must
+        // not go round again: it would fail identically and then report the
+        // argument spelling as the cause of a network problem.
+        for real_failure in [
+            "error: failed to fetch package wasi:cli: connection refused",
+            "error: no such package `wasi:http@0.3.0` in registry",
+            "error: failed to parse lock file",
+        ] {
+            assert!(
+                !is_cli_usage_error(real_failure),
+                "should not look like a usage error: {real_failure}"
+            );
+        }
+    }
 }

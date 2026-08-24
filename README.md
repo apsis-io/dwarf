@@ -156,7 +156,7 @@ export function greet(name) {
 **3. Build the component:**
 
 ```bash
-dwarf --wit hello.wit --js hello.js -o hello.wasm
+dwarf --wit hello.wit --file hello.js -o hello.wasm
 ```
 
 **4. Run it:**
@@ -217,13 +217,13 @@ single-page quick reference (flags, recipes, polyfills, type mappings) without
 the surrounding prose.
 
 ```
-dwarf [OPTIONS] --wit <WIT> --js <JS>
+dwarf [OPTIONS] --wit <WIT> --file <JS>
 ```
 
 | Flag | Short | Description |
 |---|---|---|
 | `--wit <PATH>` | `-w` | Path to the WIT file or directory |
-| `--js <PATH>` | `-j` | Path to the JavaScript source file |
+| `--file <PATH>` | `-j` | Path to the JavaScript source file |
 | `--output <PATH>` | `-o` | Output path (default: `output.wasm`) |
 | `--module-root <PATH>` | | Root directory exposed read-only during Wizer for resolving JavaScript imports |
 | `--world <NAME>` | `-n` | World name when the WIT defines multiple worlds |
@@ -294,8 +294,8 @@ convention: set it and the snapshot's clock reads that instant, leave it and
 the clock reads the Unix epoch. The same value always gives the same bytes.
 
 ```bash
-dwarf --wit hello.wit --js hello.js -o a.wasm
-dwarf --wit hello.wit --js hello.js -o b.wasm
+dwarf --wit hello.wit --file hello.js -o a.wasm
+dwarf --wit hello.wit --file hello.js -o b.wasm
 cmp a.wasm b.wasm && echo identical
 ```
 
@@ -304,7 +304,7 @@ the bytes — including that the working directory cannot change the output.
 
 ## Reactors: instantiate once, call many
 
-Every ordinary `dwarf --wit x.wit --js x.js` build already produces what the
+Every ordinary `dwarf --wit x.wit --file x.js` build already produces what the
 component-model community calls a **reactor** — a component that exports its
 own world and is instantiated once, then called repeatedly. The only other
 shape is a **command**: a component exporting `wasi:cli/run`, which a host
@@ -388,9 +388,8 @@ export function doubleAdd(a, b) {
 
 JavaScript modules imported by the entry file are resolved during Wizer
 initialization. Relative imports are resolved from the entry file path passed to
-`--js`; bare package imports are resolved under the read-only module root. By
-default the CLI uses the current directory when the entry file is under it, or
-the entry file's parent directory otherwise. Use `--module-root <PATH>` to expose
+`--file`; bare package imports are resolved under the read-only module root. By
+default the CLI uses the entry file's own directory. Use `--module-root <PATH>` to expose
 a project root that contains shared files or `node_modules`.
 
 **Static `import` only — dynamic `import()` doesn't work at runtime.**
@@ -446,7 +445,7 @@ Point it at a module and the boundary is derived from that module's
 exported signatures:
 
 ```bash
-dwarf --wit app.wit --js app.js --optimize hot.ts -o app.wasm
+dwarf --wit app.wit --file app.js --optimize hot.ts -o app.wasm
 ```
 
 JavaScript imports it under `scriptc:<module name>/ops`, and your world
@@ -520,7 +519,7 @@ A profile names the module and the functions to expose:
 ```
 
 ```bash
-dwarf --wit app.wit --js app.js --scriptc hot/profile.json -o app.wasm
+dwarf --wit app.wit --file app.js --scriptc hot/profile.json -o app.wasm
 ```
 
 Either flag needs a scriptc install and the toolchain behind it (zig and
@@ -1115,7 +1114,7 @@ The npm package exposes both a CLI and a programmatic API.
 ### CLI
 
 ```bash
-npx dwarf --wit hello.wit --js hello.js -o hello.wasm
+npx dwarf --wit hello.wit --file hello.js -o hello.wasm
 ```
 
 (Or, if you installed the package globally, just `dwarf ...`.)

@@ -84,7 +84,7 @@ fn two_builds_of_one_input_are_byte_identical() {
         let out = dir.path().join(format!("out{n}.wasm"));
         dwarf_cmd()
             .args(["--wit", wit.to_str().unwrap()])
-            .args(["--js", js.to_str().unwrap()])
+            .args(["--file", js.to_str().unwrap()])
             .args(["--output", out.to_str().unwrap()])
             .assert()
             .success();
@@ -113,7 +113,7 @@ fn the_working_directory_does_not_change_the_output() {
         dwarf_cmd()
             .current_dir(cwd)
             .args(["--wit", wit.to_str().unwrap()])
-            .args(["--js", js.to_str().unwrap()])
+            .args(["--file", js.to_str().unwrap()])
             .args(["--output", out.to_str().unwrap()])
             .assert()
             .success();
@@ -137,7 +137,7 @@ fn source_date_epoch_is_the_one_deliberate_knob() {
         dwarf_cmd()
             .env("SOURCE_DATE_EPOCH", epoch)
             .args(["--wit", wit.to_str().unwrap()])
-            .args(["--js", js.to_str().unwrap()])
+            .args(["--file", js.to_str().unwrap()])
             .args(["--output", out.to_str().unwrap()])
             .assert()
             .success();

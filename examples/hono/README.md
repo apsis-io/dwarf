@@ -21,7 +21,7 @@ spellings of request and response.
 
 ```bash
 npm install                 # or: nub add hono / pnpm i / bun i
-dwarf --wit wit --js app.js --polyfill fetch-classes -o hono.wasm
+dwarf --wit wit --file app.js --polyfill fetch-classes -o hono.wasm
 ```
 
 `--polyfill fetch-classes` supplies `Request`/`Response`/`Headers`, which

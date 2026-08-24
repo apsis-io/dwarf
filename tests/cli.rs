@@ -30,7 +30,7 @@ fn test_cli_errors() {
     dwarf_cmd()
         .arg("--wit")
         .arg("nonexistent.wit")
-        .arg("--js")
+        .arg("--file")
         .arg("test.js")
         .assert()
         .failure()
@@ -43,7 +43,7 @@ fn test_cli_errors() {
     dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
-        .arg("--js")
+        .arg("--file")
         .arg("nonexistent.js")
         .assert()
         .failure()
@@ -57,7 +57,7 @@ fn test_cli_errors() {
     dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
-        .arg("--js")
+        .arg("--file")
         .arg(&js_path)
         .arg("--opt-size")
         .arg("--runtime")
@@ -159,7 +159,7 @@ fn test_cli_resolves_relative_import() {
     dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
-        .arg("--js")
+        .arg("--file")
         .arg(&js_path)
         .arg("--output")
         .arg(&output)
@@ -201,7 +201,7 @@ fn test_cli_resolves_package_import_from_module_root() {
     dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
-        .arg("--js")
+        .arg("--file")
         .arg(&js_path)
         .arg("--module-root")
         .arg(dir.path())
@@ -277,7 +277,7 @@ fn test_cli_resolves_nested_imports_and_caches_modules() {
     dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
-        .arg("--js")
+        .arg("--file")
         .arg(&js_path)
         .arg("--output")
         .arg(&output)
@@ -312,7 +312,7 @@ fn test_cli_reports_missing_import() {
     dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
-        .arg("--js")
+        .arg("--file")
         .arg(&js_path)
         .arg("--output")
         .arg(&output)
@@ -342,7 +342,7 @@ fn test_cli_hints_at_missing_terminator_on_cascading_parse_errors() {
         let output = dwarf_cmd()
             .arg("--wit")
             .arg(&wit_path)
-            .arg("--js")
+            .arg("--file")
             .arg(&js_path)
             .arg("--output")
             .arg(dir.path().join("out.wasm"))
@@ -392,6 +392,35 @@ fn test_cli_hints_at_missing_terminator_on_cascading_parse_errors() {
 }
 
 #[test]
+fn test_cli_still_accepts_the_old_js_flag() {
+    // `--js`/`-j` were renamed to `--file`/`-f`, since the flag names the
+    // build's input and a TypeScript project should not have to say "js" on
+    // every invocation. Both spellings stay accepted: scripts, CI jobs and
+    // copied-out README lines predating the rename must keep working.
+    let dir = TempDir::new().unwrap();
+    let wit_path = dir.path().join("test.wit");
+    let js_path = dir.path().join("app.js");
+    fs::write(
+        &wit_path,
+        "package test:alias;\n\nworld app { export ping: func() -> string; }\n",
+    )
+    .unwrap();
+    fs::write(&js_path, "export function ping() { return 'pong'; }\n").unwrap();
+
+    for flag in ["--file", "--js", "-f", "-j"] {
+        dwarf_cmd()
+            .arg("--wit")
+            .arg(&wit_path)
+            .arg(flag)
+            .arg(&js_path)
+            .arg("--output")
+            .arg(dir.path().join(format!("out{}.wasm", flag.trim_matches('-'))))
+            .assert()
+            .success();
+    }
+}
+
+#[test]
 fn test_cli_prints_build_time_console_log() {
     // A module's top level runs once, at build time, under Wizer - so a
     // `console.log` there is the developer's only window into what their
@@ -414,7 +443,7 @@ fn test_cli_prints_build_time_console_log() {
         .arg(&wit_path)
         .arg("--world")
         .arg("wasi-stdio")
-        .arg("--js")
+        .arg("--file")
         .arg(&js_path)
         .arg("--output")
         .arg(dir.path().join("out.wasm"))
@@ -510,7 +539,7 @@ fn test_cli_custom_runtime_file() {
     dwarf_cmd()
         .arg("--wit")
         .arg(&wit_path)
-        .arg("--js")
+        .arg("--file")
         .arg(&js_path)
         .arg("--output")
         .arg(&output)
@@ -596,7 +625,7 @@ fn run_cli_build_with_emit_types(wit: &str, js: &str, extra_args: &[&str]) -> (P
     let mut cmd = dwarf_cmd();
     cmd.arg("--wit")
         .arg(&wit_path)
-        .arg("--js")
+        .arg("--file")
         .arg(&js_path)
         .arg("--output")
         .arg(&output);

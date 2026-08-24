@@ -11,7 +11,7 @@ Build it from the repository root:
 ```bash
 dwarf \
   --wit examples/module-resolution/package.wit \
-  --js examples/module-resolution/main.js \
+  --file examples/module-resolution/main.js \
   --module-root examples/module-resolution \
   --output module-resolution.wasm
 ```

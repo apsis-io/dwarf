@@ -37,7 +37,7 @@ consuming component's own world never has to deal with any of this.
 ## Building
 
 ```bash
-dwarf --wit . --js main.js -o fetch-provider.wasm --world fetch-provider
+dwarf --wit . --file main.js -o fetch-provider.wasm --world fetch-provider
 ```
 
 ## Using it from another component
@@ -72,7 +72,7 @@ export async function run() {
 Build your component, then compose the two together:
 
 ```bash
-dwarf --wit . --js main.js -o my-app.wasm
+dwarf --wit . --file main.js -o my-app.wasm
 wac plug --plug fetch-provider.wasm my-app.wasm -o my-app.composed.wasm
 wasmtime run -S http=y --wasm component-model-async=y --invoke 'run()' my-app.composed.wasm
 ```
@@ -101,7 +101,7 @@ export async function run() {
 ```
 
 Requires the `fetch-classes` polyfill for `Request`/`Response`/`Headers`
-(`dwarf --wit . --js main.js -o my-app.wasm --polyfill fetch-classes`), on
+(`dwarf --wit . --file main.js -o my-app.wasm --polyfill fetch-classes`), on
 top of composing in `fetch-provider.wasm` as above.
 
 ## Known limitations

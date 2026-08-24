@@ -459,7 +459,7 @@ pub fn run_cli_build(wit: &str, js: &str, extra_args: &[&str]) -> (PathBuf, Temp
     let mut cmd = dwarf_cmd();
     cmd.arg("--wit")
         .arg(&wit_path)
-        .arg("--js")
+        .arg("--file")
         .arg(&js_path)
         .arg("--output")
         .arg(&output);

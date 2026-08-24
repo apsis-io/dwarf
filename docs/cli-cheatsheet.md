@@ -6,13 +6,13 @@ for full explanations; this is the fast-lookup version.
 ## Synopsis
 
 ```
-dwarf [OPTIONS] --wit <WIT> --js <JS>
+dwarf [OPTIONS] --wit <WIT> --file <JS>
 ```
 
 ## Minimal build
 
 ```bash
-dwarf --wit hello.wit --js hello.js -o hello.wasm
+dwarf --wit hello.wit --file hello.js -o hello.wasm
 wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
 ```
 
@@ -44,42 +44,42 @@ wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
 
 ```bash
 # Auto-detect vendoring, world, everything default
-dwarf --wit wit/ --js src/main.js -o out.wasm
+dwarf --wit wit/ --file src/main.js -o out.wasm
 
 # Multiple worlds in one WIT dir — must disambiguate
-dwarf --wit wit/ --js main.js --world my-world -o out.wasm
+dwarf --wit wit/ --file main.js --world my-world -o out.wasm
 
 # Static polyfills, repeatable
-dwarf --wit wit/ --js main.js --polyfill buffer --polyfill url --polyfill fetch-classes -o out.wasm
+dwarf --wit wit/ --file main.js --polyfill buffer --polyfill url --polyfill fetch-classes -o out.wasm
 
 # TypeScript types alongside the component (covers WIT world + requested polyfills)
-dwarf --wit wit/ --js main.js --polyfill buffer --emit-types types/ -o out.wasm
+dwarf --wit wit/ --file main.js --polyfill buffer --emit-types types/ -o out.wasm
 
 # Smallest possible component (size-optimized runtime + minified JS)
-dwarf --wit wit/ --js main.js --opt-size --minify -o out.wasm
+dwarf --wit wit/ --file main.js --opt-size --minify -o out.wasm
 
 # No component-model-async (older/plain wasmtime hosts)
-dwarf --wit wit/ --js main.js --sync -o out.wasm
+dwarf --wit wit/ --file main.js --sync -o out.wasm
 
 # Compile a hot TypeScript module with scriptc and plug it in (no engine in
 # it; JS imports it as `scriptc:hot/ops`). The seam does not survive into
 # the output component.
-dwarf --wit wit/ --js main.js --optimize src/hot.ts -o out.wasm
+dwarf --wit wit/ --file main.js --optimize src/hot.ts -o out.wasm
 
 # ...from a profile that declares the boundary explicitly, and with a
 # scriptc that is not the one on PATH
-dwarf --wit wit/ --js main.js --scriptc src/hot.profile.json \
+dwarf --wit wit/ --file main.js --scriptc src/hot.profile.json \
   --scriptc-bin ./node_modules/.bin/scriptc -o out.wasm
 
 # Sandbox: no real host capabilities at all
-dwarf --wit wit/ --js main.js --stub-wasi -o out.wasm
+dwarf --wit wit/ --file main.js --stub-wasi -o out.wasm
 
 # Standalone single WIT file (no deps/ dir, vendoring doesn't apply)
-dwarf --wit hello.wit --js hello.js -o out.wasm
+dwarf --wit hello.wit --file hello.js -o out.wasm
 
 # Edit a polyfill's .js/.d.ts on disk with zero rebuilds (dev only)
 DWARF_POLYFILLS_DIR=/path/to/dwarf/crates/core/polyfills \
-  dwarf --wit wit/ --js main.js --polyfill buffer -o out.wasm
+  dwarf --wit wit/ --file main.js --polyfill buffer -o out.wasm
 ```
 
 ## Polyfills (`--polyfill <name>`)
@@ -186,8 +186,8 @@ and the module root. Only the snapshot sees any of this — the component you
 ship reads the host's real clock and randomness.
 
 ```bash
-dwarf --wit hello.wit --js hello.js -o a.wasm
-dwarf --wit hello.wit --js hello.js -o b.wasm
+dwarf --wit hello.wit --file hello.js -o a.wasm
+dwarf --wit hello.wit --file hello.js -o b.wasm
 cmp a.wasm b.wasm                      # identical, from any directory
 
 SOURCE_DATE_EPOCH=1700000000 dwarf ... # the one knob; same value, same bytes
