@@ -20,14 +20,15 @@ model's own, not a callback shape bolted on top, and 0.2 remains supported for
 worlds that still need it.
 
 Output runs on any component-model runtime — [Wasmtime](https://wasmtime.dev/)
-directly, or **Trail**, the Periapsis workload runtime, which serves
+directly, or **Trail**, the workload runtime of
+[Periapsis](https://github.com/apsis-io/showcase), which serves
 `wasi:http/handler@0.3.0` components and is what the HTTP examples here are
 verified against. See [Running the output](#running-the-output).
 
 `dwarf` is a fork of
 [componentize-qjs](https://github.com/andreiltd/componentize-qjs)
 (Apache-2.0), rebranded and maintained here for the
-Periapsis project family. See
+[Periapsis](https://github.com/apsis-io/showcase) project family. See
 [NOTICES](NOTICES) for full upstream attribution and `git log` for
 commit-level history predating the fork. Not published to crates.io or npm —
 build from source.
@@ -182,8 +183,9 @@ the async feature turned on:
 wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
 ```
 
-**Trail**, the Periapsis workload runtime, for components that serve HTTP. It
-drives `wasi:http/handler@0.3.0` over a hyper HTTP/1.1 server:
+**Trail**, the workload runtime of
+[Periapsis](https://github.com/apsis-io/showcase), for components that serve
+HTTP. It drives `wasi:http/handler@0.3.0` over a hyper HTTP/1.1 server:
 
 ```bash
 trail --p3 --serve --component app.wasm --listen 127.0.0.1:8080
@@ -203,8 +205,9 @@ Periapsis also runs a complete Nuxt 4 SSR app as a dwarf component
 (`examples/wasm/js-dwarf-nuxt` there), which is where this repo's
 request/response bridge comes from.
 
-> Trail and Periapsis are not public repositories yet, so they are named here
-> rather than linked. Nothing in dwarf depends on them: the components it
+> Trail's source is not public yet —
+> [apsis-io/showcase](https://github.com/apsis-io/showcase) is Periapsis's
+> public overview. Nothing in dwarf depends on either: the components it
 > builds are plain WASI 0.3 components, and Wasmtime runs them.
 
 ## CLI Reference
