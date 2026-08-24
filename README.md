@@ -1,28 +1,80 @@
 # dwarf
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![WASI 0.3](https://img.shields.io/badge/WASI-0.3%20%C2%B7%20Preview%203-6f42c1.svg)](https://github.com/WebAssembly/WASI/blob/main/Proposals.md)
 
-Convert JavaScript source code into
-[WebAssembly components](https://component-model.bytecodealliance.org/) —
-including genuine **WASI 0.3 (Preview 3)** components, async exports and all —
-using [QuickJS](https://github.com/quickjs-ng/quickjs). QuickJS-sized (not a
-~13 MB SpiderMonkey embedding) with full typed WIT bindings for arbitrary
-worlds (not just standard WASI).
+**JavaScript to WebAssembly components, written for WASI 0.3.**
+
+`dwarf` takes a JavaScript file and a
+[WIT](https://component-model.bytecodealliance.org/design/wit.html) world and
+produces a standalone
+[component](https://component-model.bytecodealliance.org/), using
+[QuickJS](https://github.com/quickjs-ng/quickjs) — QuickJS-sized, not a ~13 MB
+SpiderMonkey embedding, with full typed bindings for arbitrary worlds rather
+than just the standard WASI ones.
+
+The part worth leading with is **WASI 0.3 (Preview 3)**. An `async func` export
+is an `async` JavaScript function; a `stream<u8>` is an object you `read()` and
+`writeAll()`; a `future<T>` is one you `await`. Concurrency is the component
+model's own, not a callback shape bolted on top, and 0.2 remains supported for
+worlds that still need it.
+
+Output runs on any component-model runtime — [Wasmtime](https://wasmtime.dev/)
+directly, or **Trail**, the Periapsis workload runtime, which serves
+`wasi:http/handler@0.3.0` components and is what the HTTP examples here are
+verified against. See [Running the output](#running-the-output).
 
 `dwarf` is a fork of
 [componentize-qjs](https://github.com/andreiltd/componentize-qjs)
 (Apache-2.0), rebranded and maintained here for the
-[Periapsis](https://github.com/apsis-io/periapsis) project family. See
+Periapsis project family. See
 [NOTICES](NOTICES) for full upstream attribution and `git log` for
-commit-level history predating the fork. Local fork only for now — no
-published crate/npm package yet.
+commit-level history predating the fork. Not published to crates.io or npm —
+build from source.
 
 ## Overview
+
+### Why WASI 0.3
+
+0.3 is the version where the component model's concurrency stops needing a
+translation layer, and that shows up directly in the JavaScript you write.
+
+```wit
+world greeter {
+    export greet: async func(name: string) -> string;
+}
+```
+
+```js
+export async function greet(name) {
+    return `Hello, ${name}!`;   // an `async func` is just an async function
+}
+```
+
+The same holds for the types around it. A `stream<u8>` is an object with
+`read()` and `writeAll()`; a `future<T>` is one you `await`; a `result<T, E>`
+returns `T` or throws `E`; an `option<T>` is `T` or `null`. Full detail in
+[WIT Type Mappings](#wit-type-mappings),
+[Async Exports](#async-exports), [Streams](#streams) and
+[Futures](#futures).
+
+Concretely, that means a component can *serve* — hold a connection open,
+stream a body, await a timer, handle requests concurrently — rather than only
+answer one synchronous call at a time. `wasi:http/handler@0.3.0`,
+[WebSockets](#websockets) and [Timers](#timers) all fall out of the same
+mechanism.
+
+WASI 0.2 worlds still build and still work; `--sync` targets hosts without
+component-model async at all. Where an 0.3 name might shift meaning later,
+the version-pinned [`...P3` aliases](#version-pinned-p3-names) stay bound to
+the 0.3 implementation.
+
+### How it works
 
 `dwarf` takes a JavaScript source file and a
 [WIT](https://component-model.bytecodealliance.org/design/wit.html) definition,
 and produces a standalone WebAssembly component that can run on any
-component-model runtime (e.g. [Wasmtime](https://wasmtime.dev/)).
+component-model runtime (see [Running the output](#running-the-output)).
 
 Under the hood it:
 
@@ -56,8 +108,12 @@ npm install -g @bytecodealliance/jco
 
 ## Installation
 
-Not published to crates.io or npm — this is a local-only fork. Build from
-source:
+Not published to crates.io or npm yet. Build from source:
+
+```bash
+git clone https://github.com/apsis-io/dwarf.git
+cd dwarf
+```
 
 ### Rust CLI (from source)
 
@@ -113,6 +169,43 @@ The built-in runtime published with dwarf includes component-model
 async support. Pass `--sync` to embed the built-in non-async runtime instead,
 producing components that run on hosts without component-model async support. A
 custom runtime can also be supplied with `--runtime`.
+
+## Running the output
+
+The output is an ordinary WebAssembly component: any component-model host can
+run it. Two that get used here.
+
+**Wasmtime**, for one-shot calls and `wasi:cli/run` components. WASI 0.3 needs
+the async feature turned on:
+
+```bash
+wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
+```
+
+**Trail**, the Periapsis workload runtime, for components that serve HTTP. It
+drives `wasi:http/handler@0.3.0` over a hyper HTTP/1.1 server:
+
+```bash
+trail --p3 --serve --component app.wasm --listen 127.0.0.1:8080
+```
+
+By default each request gets a fresh `Store` and instance — the snapshot
+Wizer took is the starting point every time, so one request cannot leave
+state behind for the next. `--persistent` holds a single instance for the
+process lifetime instead, keeping module-level state across requests at the
+cost of that isolation. Which one you want is the same question as
+[Reactors: instantiate once, call many](#reactors-instantiate-once-call-many),
+and `_initialize` is where per-instance setup belongs under either.
+
+[`examples/hono`](examples/hono) is a full worked example — the Hono router on
+`wasi:http/handler@0.3.0`, verified end to end under `trail --p3 --serve`.
+Periapsis also runs a complete Nuxt 4 SSR app as a dwarf component
+(`examples/wasm/js-dwarf-nuxt` there), which is where this repo's
+request/response bridge comes from.
+
+> Trail and Periapsis are not public repositories yet, so they are named here
+> rather than linked. Nothing in dwarf depends on them: the components it
+> builds are plain WASI 0.3 components, and Wasmtime runs them.
 
 ## CLI Reference
 
