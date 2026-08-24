@@ -322,6 +322,20 @@ impl wasmtime_wasi::clocks::HostMonotonicClock for FixedMonotonicClock {
     }
 }
 
+/// Echo whatever the guest printed while Wizer evaluated its top level.
+///
+/// Silent when the guest was silent — a build that logs nothing still looks
+/// like a build that logs nothing.
+fn report_build_time_output(stream: &str, bytes: &[u8]) {
+    if bytes.is_empty() {
+        return;
+    }
+    let text = String::from_utf8_lossy(bytes);
+    for line in text.lines() {
+        eprintln!("  [js {stream}] {line}");
+    }
+}
+
 async fn wizer_init(
     component: &[u8],
     shim: &str,
@@ -388,9 +402,16 @@ async fn wizer_init(
     // in the guest, which surfaces as a raw wasmtime error from `.await?`)
     // and a graceful `result<_, string>` error from the WIT function - in
     // the same `.with_context`, so a crash during the guest's own top-level
-    // module evaluation still shows whatever it printed to stdout/stderr
-    // first (a Rust panic message, a console.log, etc.) instead of only a
-    // bare wasm backtrace.
+    // module evaluation still shows whatever REACHED stdout/stderr first
+    // instead of only a bare wasm backtrace.
+    //
+    // A build-time `console.log` does NOT arrive through these pipes, and
+    // cannot: the shim's console writes through `wasi:cli/stdout`'s
+    // write-via-stream, which only completes inside an active async task,
+    // and `init` is a synchronous export. It takes `module-loader`'s
+    // synchronous `build-log` instead, which prints on the spot rather than
+    // landing here. What these pipes do carry is anything the runtime wrote
+    // synchronously itself, e.g. a Rust panic message.
     async {
         init.call_init(
             &mut store,
@@ -403,13 +424,21 @@ async fn wizer_init(
         .map_err(|e| anyhow!("{e}"))
     }
     .await
-    .with_context(move || {
+    .with_context(|| {
         format!(
             "{}{}",
             String::from_utf8_lossy(&stdout.contents()),
             String::from_utf8_lossy(&stderr.contents())
         )
     })?;
+
+    // ...and on SUCCESS, print it rather than discard it. A module's top
+    // level runs exactly once, here, under Wizer, so anything it writes is
+    // build-time output with nowhere else to go. Prefixed and on stderr, so
+    // it cannot be confused with dwarf's own progress lines or captured as
+    // tool output. Silent when the guest was silent.
+    report_build_time_output("stdout", &stdout.contents());
+    report_build_time_output("stderr", &stderr.contents());
 
     let component = wizer
         .snapshot_component(
@@ -657,6 +686,16 @@ fn register_module_loader(linker: &mut Linker<Ctx>, resolver: Option<Resolver>) 
                 |resolver| resolver.load(&path).map_err(|err| err.to_string()),
             );
             Ok((result,))
+        },
+    )?;
+    // Printed as it arrives rather than buffered to the end of init: a build
+    // that traps halfway through module evaluation is exactly when these
+    // lines are worth having, and buffering would lose them.
+    instance.func_wrap(
+        "build-log",
+        move |_, (stream, message): (String, Vec<u8>)| -> wasmtime::Result<_> {
+            report_build_time_output(&stream, &message);
+            Ok(())
         },
     )?;
 

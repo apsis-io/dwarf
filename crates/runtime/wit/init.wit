@@ -3,6 +3,21 @@ package local:init;
 interface module-loader {
   resolve: func(referrer: string, specifier: string) -> result<string, string>;
   load: func(path: string) -> result<string, string>;
+
+  /// A SYNCHRONOUS write, for build-time output only.
+  ///
+  /// `console.log` normally lowers to WASI 0.3's `write-via-stream`, which
+  /// can only complete inside an active async task. Top-level module code
+  /// runs during Wizer pre-init, under a plain synchronous `init` export,
+  /// where no such task exists - so a build-time log had nowhere to go.
+  /// This is the one place a synchronous write is available, and it exists
+  /// because the build host is a real process with real stderr, unlike the
+  /// runtime host. Stubbed out with the rest of this interface after Wizer,
+  /// so it is unreachable at runtime by construction.
+  ///
+  /// `target` is "stdout" or "stderr" - not named `stream`, which is a WIT
+  /// keyword.
+  build-log: func(target: string, message: list<u8>);
 }
 
 world init {

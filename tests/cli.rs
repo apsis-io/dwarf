@@ -392,6 +392,46 @@ fn test_cli_hints_at_missing_terminator_on_cascading_parse_errors() {
 }
 
 #[test]
+fn test_cli_prints_build_time_console_log() {
+    // A module's top level runs once, at build time, under Wizer - so a
+    // `console.log` there is the developer's only window into what their
+    // module did while it was being snapshotted. It used to produce nothing
+    // at all: the generated console lowers to `wasi:cli/stdout`'s
+    // write-via-stream, which needs an active async task, and `init` is a
+    // synchronous export, so the throw became an unobserved rejected
+    // promise. It now takes `module-loader`'s synchronous `build-log`.
+    let dir = TempDir::new().unwrap();
+    let js_path = dir.path().join("app.js");
+    fs::write(
+        &js_path,
+        "console.log('BUILD TIME MARKER', 42);\nexport const run = { async run() {} };\n",
+    )
+    .unwrap();
+
+    let wit_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/wasi-stdio");
+    let output = dwarf_cmd()
+        .arg("--wit")
+        .arg(&wit_path)
+        .arg("--world")
+        .arg("wasi-stdio")
+        .arg("--js")
+        .arg(&js_path)
+        .arg("--output")
+        .arg(dir.path().join("out.wasm"))
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8(output).unwrap();
+
+    assert!(
+        stderr.contains("[js stdout] BUILD TIME MARKER 42"),
+        "a top-level console.log should reach the build's stderr:\n{stderr}"
+    );
+}
+
+#[test]
 fn test_cli_stub_wasi() {
     let (output, _dir) = run_cli_build(
         "package test:hello;\nworld hello { export add: func(a: u32, b: u32) -> u32; }",

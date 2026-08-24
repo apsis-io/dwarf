@@ -474,6 +474,11 @@ fn has_cli(resolve: &Resolve, world_id: WorldId, interface_name: &str, probe_fn:
 /// explicitly-async, explicitly-awaited surface is ever offered for it -
 /// true of `print`/`println` unconditionally, and true of
 /// `log`/`info`/`debug`/`warn`/`error` as well.
+///
+/// Build time is the exception: there a synchronous host import exists
+/// (`local:init/module-loader`'s `build-log`), so a top-level `console.log`
+/// prints to the build's stderr instead of throwing into a promise nobody
+/// awaits. See `emit_async_writer`.
 fn generate_console(resolve: &Resolve, world_id: WorldId, lines: &mut Vec<String>) {
     let stdout_async = has_cli(resolve, world_id, "stdout", "write-via-stream");
     let stderr_async = has_cli(resolve, world_id, "stderr", "write-via-stream");
@@ -576,16 +581,30 @@ fn emit_async_writer(
         // task (a genuine `async func` export call in progress) - without
         // one, `wit.Stream()`/its writeViaStream/read chain aborts the whole
         // guest outright (a raw wasm trap, not a catchable JS exception).
-        // This matters beyond the already-documented "called from a plain
-        // sync export" case: dwarf's own Wizer build-time module-init call
-        // is ALSO a plain (non-async) export, so any top-level module code
-        // (a library's own import-time side effect, not just user code)
-        // that logs something in a WASI-0.3-only world would hit this too -
-        // confirmed empirically. Check first and throw a normal, catchable
-        // Error instead.
+        // Two callers arrive with no task: a plain sync export at runtime,
+        // and dwarf's own Wizer build-time init, which is also a plain
+        // (non-async) export - so any top-level module code that logs in a
+        // WASI-0.3-only world lands here, a library's own import-time side
+        // effect as much as user code.
+        //
+        // Those two want opposite things. Build time has a synchronous host
+        // import available and takes it. Runtime has none, and gets a
+        // normal catchable Error rather than a trap. Before, both threw -
+        // and because this writer is `async`, a build-time throw became a
+        // rejected promise nobody was there to observe, so the log simply
+        // vanished with no diagnostic at all.
+        let stream_name = var_suffix.to_lowercase();
+        lines.push("    if (!__cqjs.hasActiveTask()) {".into());
+        // Build time: no task exists and none can, so take the synchronous
+        // host import instead of failing. It answers false once the build is
+        // over, which is when the message below is the right one.
         lines.push(format!(
-            "    if (!__cqjs.hasActiveTask()) {{ throw new Error(\"console.{methods} (via {interface}@0.3.x) requires an active async task - it can't be called from a plain sync export, or from top-level module code running during dwarf's build-time init (e.g. a library's own import-time side effect). Only call this from within an `async func` export.\"); }}"
+            "      if (typeof __dwarfBuildLog === 'function' && __dwarfBuildLog('{stream_name}', bytes)) {{ return; }}"
         ));
+        lines.push(format!(
+            "      throw new Error(\"console.{methods} (via {interface}@0.3.x) requires an active async task - it can't be called from a plain sync export. Only call this from within an `async func` export.\");"
+        ));
+        lines.push("    }".into());
         lines.push("    const { readable, writable } = wit.Stream(wit.Stream.U8);".into());
         lines.push("    const writeDone = writable.writeAll(bytes);".into());
         lines.push(format!(

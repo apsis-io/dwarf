@@ -289,6 +289,7 @@ fn init_js(
     }
 
     state.with_ctx(|ctx| {
+        register_build_log(ctx)?;
         module::evaluate_shim(ctx, shim)?;
         module::evaluate_user(ctx, js_source, entry_path)
     })?;
@@ -305,6 +306,32 @@ fn init_js(
     state.module_loader_available.set(false);
 
     Ok(())
+}
+
+/// Installs `__dwarfBuildLog(target, bytes) -> bool`, the escape hatch the
+/// generated `console` uses when it finds no active async task.
+///
+/// It RETURNS whether it wrote, which is what lets one generated `console`
+/// serve both phases without the snapshot carrying a stale answer: during
+/// Wizer it prints and returns true, and after the snapshot the same global
+/// sees `module_loader_available()` false, writes nothing and returns
+/// false, leaving the caller to take the ordinary async path. Deleting the
+/// global at the end of init would work too, but this keeps the build/run
+/// distinction in the one place that already owns it rather than spreading
+/// it across a second mechanism.
+fn register_build_log(ctx: &rquickjs::Ctx<'_>) -> Result<(), String> {
+    let build_log = rquickjs::Function::new(ctx.clone(), |target: String, bytes: Vec<u8>| {
+        if !module_loader_available() {
+            return false;
+        }
+        init::local::init::module_loader::build_log(&target, &bytes);
+        true
+    })
+    .map_err(|e| format!("failed to create __dwarfBuildLog: {e}"))?;
+
+    ctx.globals()
+        .set("__dwarfBuildLog", build_log)
+        .map_err(|e| format!("failed to install __dwarfBuildLog: {e}"))
 }
 
 /// Whether `local:init/module-loader` is still safe to call (see

@@ -108,7 +108,7 @@ attributions: README's [Polyfills](../README.md#polyfills) section and
 | Global | Backed by |
 |---|---|
 | `TextEncoder` / `TextDecoder` | Hand-written, always present |
-| `console.log/info/debug/warn/error` | `wasi:cli/stdout`/`stderr@0.3.x` (`write-via-stream`, Promise-returning) |
+| `console.log/info/debug/warn/error` | `wasi:cli/stdout`/`stderr@0.3.x` (`write-via-stream`, Promise-returning); at build time, the build's own stderr |
 | `console.print/println/eprint/eprintln` | Same interfaces, always async (Promise-returning) |
 | `process.env/argv/cwd()/exit()` | `wasi:cli/environment`/`exit` (same shape in 0.2 and 0.3) |
 | `crypto.getRandomValues` | `wasi:random/random#get-random-bytes` |
@@ -202,6 +202,7 @@ world needs `export function run() { ... }`.)
 | | |
 |---|---|
 | JS module top level | runs at **build** time under Wizer, snapshotted |
+| `console.log` in it | printed by the *build*, prefixed `  [js stdout]` on dwarf's stderr |
 | a fresh instance | starts from that snapshot, never from another instance |
 | state between calls | persists for the life of one instance |
 | `export function _initialize()` | runs **once per instance**, before the first exported call — the place for setup that cannot be snapshotted |
@@ -216,6 +217,11 @@ world needs `export function run() { ... }`.)
   flag; without it those imports fail as "outside the module root".
 - **Vendoring** only applies when `--wit` is a *directory* (needs a `deps/` to
   populate). A single WIT file with missing deps is always an error.
+- **`console.log` needs an async task at *runtime***, since WASI 0.3 has no
+  synchronous write: called from a plain sync export it throws a catchable
+  error rather than writing. At *build* time (module top level) there is no
+  task and none is possible, so it goes out through the build host's stderr
+  instead — that path is build-only and is stubbed out of the component.
 - **Dynamic `import()`**: only works if reached during Wizer's build-time
   module evaluation (top-level code). One reached later, at real runtime
   (e.g. lazily inside a request handler), throws a catchable error naming the
