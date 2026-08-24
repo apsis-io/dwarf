@@ -50,7 +50,26 @@ impl Resolver {
         let entry_path = guest_absolute_path(relative_entry)?;
         let resolver = OxcResolver::new(ResolveOptions {
             condition_names: vec!["import".into(), "default".into()],
-            extensions: vec![".mjs".into(), ".js".into()],
+            // `.ts` before `.js`: in a TypeScript project that emits next to
+            // its sources, both exist and the `.ts` is the one being edited.
+            // `.mts`/`.cts` follow their JavaScript counterparts.
+            extensions: vec![
+                ".mts".into(),
+                ".ts".into(),
+                ".mjs".into(),
+                ".js".into(),
+                ".cts".into(),
+                ".cjs".into(),
+            ],
+            // TypeScript's own convention is to write `./x.js` in the source
+            // and have it mean `./x.ts`, because the import specifier
+            // describes the EMITTED module. Without this, every relative
+            // import in an idiomatic TS project fails to resolve.
+            extension_alias: vec![
+                (".js".into(), vec![".ts".into(), ".js".into()]),
+                (".mjs".into(), vec![".mts".into(), ".mjs".into()]),
+                (".cjs".into(), vec![".cts".into(), ".cjs".into()]),
+            ],
             main_fields: vec!["module".into(), "main".into()],
             node_path: false,
             symlinks: false,
@@ -101,8 +120,12 @@ impl Resolver {
 
     pub(crate) fn load(&self, path: &str) -> Result<String> {
         let path = self.guest_path_to_host(path)?;
-        std::fs::read_to_string(&path)
-            .with_context(|| format!("failed to read JavaScript module {}", path.display()))
+        let source = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read module {}", path.display()))?;
+        // An imported `.ts` is stripped the same way the entry is, so a
+        // TypeScript project is TypeScript all the way down rather than only
+        // at its entry point.
+        crate::ts::to_javascript(&source, &path)
     }
 
     fn guest_path_to_host(&self, path: &str) -> Result<PathBuf> {

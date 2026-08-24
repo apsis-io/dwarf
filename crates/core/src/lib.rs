@@ -3,6 +3,7 @@ pub mod polyfills;
 mod resolver;
 pub mod scriptc;
 pub mod stubwasi;
+mod ts;
 pub mod types;
 mod wit;
 
@@ -47,9 +48,12 @@ impl WasiView for Ctx {
 pub struct ComponentizeOpts<'a> {
     /// Path to the WIT file or directory
     pub wit_path: &'a Path,
-    /// JavaScript source code
+    /// Source code for the entry module. TypeScript when `js_path` names a
+    /// `.ts`/`.mts`/`.cts` file, in which case types are stripped before the
+    /// engine ever sees it (see the `ts` module); JavaScript otherwise.
     pub js_source: &'a str,
-    /// Path to the JavaScript entry file, used as the base for resolving imports
+    /// Path to the entry file, used as the base for resolving imports and to
+    /// decide whether the source is TypeScript
     pub js_path: Option<&'a Path>,
     /// Host directory exposed read-only during Wizer for resolving imported modules
     pub module_root: Option<&'a Path>,
@@ -193,10 +197,18 @@ pub async fn componentize_with(
         .encode()
         .context("failed to link and encode component")?;
 
+    // TypeScript is erased here, at the single point every caller passes
+    // through - the CLI, the Node binding and the library API alike - rather
+    // than in each of them.
+    let entry_source = match opts.js_path {
+        Some(path) => ts::to_javascript(opts.js_source, path)?,
+        None => opts.js_source.to_string(),
+    };
+
     let mut component = wizer_init(
         &pre_wizer_component,
         &shim,
-        opts.js_source,
+        &entry_source,
         resolver,
         opts.disable_gc,
     )

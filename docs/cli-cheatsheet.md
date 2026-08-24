@@ -6,13 +6,13 @@ for full explanations; this is the fast-lookup version.
 ## Synopsis
 
 ```
-dwarf [OPTIONS] --wit <WIT> --file <JS>
+dwarf [OPTIONS] --wit <WIT> --file <PATH>
 ```
 
 ## Minimal build
 
 ```bash
-dwarf --wit hello.wit --file hello.js -o hello.wasm
+dwarf --wit hello.wit --file hello.ts -o hello.wasm   # .js works the same
 wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
 ```
 
@@ -21,7 +21,7 @@ wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
 | Flag | Short | Value | Default | Description |
 |---|---|---|---|---|
 | `--wit` | `-w` | path | *(required)* | WIT file or directory |
-| `--js` | `-j` | path | *(required)* | JS entry module |
+| `--file` | `-f` | path | *(required)* | Entry module, `.ts` or `.js` (`--js`/`-j` still accepted) |
 | `--output` | `-o` | path | `output.wasm` | Output component path |
 | `--world` | `-n` | name | (auto-detect) | World name, if the WIT defines more than one |
 | `--module-root` | | path | entry's dir | Root exposed read-only during Wizer for resolving JS `import`s (relative/bare specifiers, `node_modules`) |
@@ -44,42 +44,61 @@ wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
 
 ```bash
 # Auto-detect vendoring, world, everything default
-dwarf --wit wit/ --file src/main.js -o out.wasm
+dwarf --wit wit/ --file src/main.ts -o out.wasm
 
 # Multiple worlds in one WIT dir — must disambiguate
-dwarf --wit wit/ --file main.js --world my-world -o out.wasm
+dwarf --wit wit/ --file main.ts --world my-world -o out.wasm
 
 # Static polyfills, repeatable
-dwarf --wit wit/ --file main.js --polyfill buffer --polyfill url --polyfill fetch-classes -o out.wasm
+dwarf --wit wit/ --file main.ts --polyfill buffer --polyfill url --polyfill fetch-classes -o out.wasm
 
 # TypeScript types alongside the component (covers WIT world + requested polyfills)
-dwarf --wit wit/ --file main.js --polyfill buffer --emit-types types/ -o out.wasm
+dwarf --wit wit/ --file main.ts --polyfill buffer --emit-types types/ -o out.wasm
 
 # Smallest possible component (size-optimized runtime + minified JS)
-dwarf --wit wit/ --file main.js --opt-size --minify -o out.wasm
+dwarf --wit wit/ --file main.ts --opt-size --minify -o out.wasm
 
 # No component-model-async (older/plain wasmtime hosts)
-dwarf --wit wit/ --file main.js --sync -o out.wasm
+dwarf --wit wit/ --file main.ts --sync -o out.wasm
 
 # Compile a hot TypeScript module with scriptc and plug it in (no engine in
 # it; JS imports it as `scriptc:hot/ops`). The seam does not survive into
 # the output component.
-dwarf --wit wit/ --file main.js --optimize src/hot.ts -o out.wasm
+dwarf --wit wit/ --file main.ts --optimize src/hot.ts -o out.wasm
 
 # ...from a profile that declares the boundary explicitly, and with a
 # scriptc that is not the one on PATH
-dwarf --wit wit/ --file main.js --scriptc src/hot.profile.json \
+dwarf --wit wit/ --file main.ts --scriptc src/hot.profile.json \
   --scriptc-bin ./node_modules/.bin/scriptc -o out.wasm
 
 # Sandbox: no real host capabilities at all
-dwarf --wit wit/ --file main.js --stub-wasi -o out.wasm
+dwarf --wit wit/ --file main.ts --stub-wasi -o out.wasm
 
 # Standalone single WIT file (no deps/ dir, vendoring doesn't apply)
-dwarf --wit hello.wit --file hello.js -o out.wasm
+dwarf --wit hello.wit --file hello.ts -o out.wasm
 
 # Edit a polyfill's .js/.d.ts on disk with zero rebuilds (dev only)
 DWARF_POLYFILLS_DIR=/path/to/dwarf/crates/core/polyfills \
-  dwarf --wit wit/ --file main.js --polyfill buffer -o out.wasm
+  dwarf --wit wit/ --file main.ts --polyfill buffer -o out.wasm
+```
+
+## TypeScript
+
+`--file app.ts` just works — types are stripped in-process (oxc), no `tsc`
+or `esbuild` needed, and imported `.ts` modules are stripped too.
+
+| | |
+|---|---|
+| Entry | `.ts`, `.mts`, `.cts`, or any `.js` flavour |
+| Imports | `./x.js` resolves `x.ts` (TypeScript's NodeNext convention), `./x` works too, and `.js`↔`.ts` may be mixed |
+| Emitting syntax | `enum`, parameter properties and decorators are compiled, not erased |
+| Type checking | **Never** — same contract as Node/esbuild. Run `tsc --noEmit` yourself |
+| Syntax errors | Fail the build, naming the file |
+| `.d.ts` input | Rejected: it declares types and emits nothing |
+| World types | `--emit-types <dir>` generates declarations from the WIT |
+
+```bash
+dwarf --wit wit/ --file src/app.ts --emit-types types/ -o app.wasm
 ```
 
 ## Polyfills (`--polyfill <name>`)
@@ -186,8 +205,8 @@ and the module root. Only the snapshot sees any of this — the component you
 ship reads the host's real clock and randomness.
 
 ```bash
-dwarf --wit hello.wit --file hello.js -o a.wasm
-dwarf --wit hello.wit --file hello.js -o b.wasm
+dwarf --wit hello.wit --file hello.ts -o a.wasm
+dwarf --wit hello.wit --file hello.ts -o b.wasm
 cmp a.wasm b.wasm                      # identical, from any directory
 
 SOURCE_DATE_EPOCH=1700000000 dwarf ... # the one knob; same value, same bytes

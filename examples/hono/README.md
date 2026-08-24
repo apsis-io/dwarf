@@ -14,15 +14,21 @@ lifecycle hook.
 Almost none of it is glue by nature: Hono's contract is
 `app.fetch(Request) -> Promise<Response>` and `wasi:http/handler`'s is
 `handle: async func(request) -> result<response, error-code>`. Those are the
-same shape, so `app.js` is a Hono app plus a translation between two
+same shape, so `app.ts` is a Hono app plus a translation between two
 spellings of request and response.
 
 ## Build
 
 ```bash
 npm install                 # or: nub add hono / pnpm i / bun i
-dwarf --wit wit --file app.js --polyfill fetch-classes -o hono.wasm
+dwarf --wit wit --file app.ts --polyfill fetch-classes -o hono.wasm
+tsc -p tsconfig.json        # optional: type-check (dwarf never does)
 ```
+
+The entry is TypeScript and needs no compile step of its own — dwarf strips
+the types. Hono ships its own declarations; the wasi:http side is declared
+in `wit-http.d.ts`, and `--emit-types` generates that from the world for a
+real project.
 
 `--polyfill fetch-classes` supplies `Request`/`Response`/`Headers`, which
 Hono needs and dwarf does not provide by default. It is the ONLY polyfill

@@ -227,7 +227,7 @@ async fn test_wasi_0_3_stdio_example() {
         .wit_dir(wit_path)
         .world("wasi-stdio")
         .stdin("hello from wasi 0.3")
-        .script(include_str!("../examples/wasi-stdio/echo.js"))
+        .script_named("echo.ts", include_str!("../examples/wasi-stdio/echo.ts"))
         .build_async()
         .await
         .expect("should build WASI 0.3 stdio example");

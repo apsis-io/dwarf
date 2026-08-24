@@ -37,7 +37,7 @@ consuming component's own world never has to deal with any of this.
 ## Building
 
 ```bash
-dwarf --wit . --file main.js -o fetch-provider.wasm --world fetch-provider
+dwarf --wit . --file main.ts -o fetch-provider.wasm --world fetch-provider
 ```
 
 ## Using it from another component
@@ -72,7 +72,7 @@ export async function run() {
 Build your component, then compose the two together:
 
 ```bash
-dwarf --wit . --file main.js -o my-app.wasm
+dwarf --wit . --file main.ts -o my-app.wasm
 wac plug --plug fetch-provider.wasm my-app.wasm -o my-app.composed.wasm
 wasmtime run -S http=y --wasm component-model-async=y --invoke 'run()' my-app.composed.wasm
 ```
@@ -83,12 +83,12 @@ wasmtime run -S http=y --wasm component-model-async=y --invoke 'run()' my-app.co
 ## DX layer: a standard `fetch(input, init)`
 
 Calling `dwarf:fetch/client`'s `fetch` directly means building the flattened
-request record and unpacking the flattened response yourself. `fetch.js` in
+request record and unpacking the flattened response yourself. `fetch.ts` in
 this directory wraps that into the standard signature instead — a URL string
 or `Request` in, a real `Response` out:
 
 ```js
-import { fetch } from "./fetch.js"; // copy fetch.js into your own component
+import { fetch } from "./fetch.js"; // copy fetch.ts into your own component
 
 export async function run() {
     const res = await fetch("https://example.com/api", {
@@ -101,7 +101,7 @@ export async function run() {
 ```
 
 Requires the `fetch-classes` polyfill for `Request`/`Response`/`Headers`
-(`dwarf --wit . --file main.js -o my-app.wasm --polyfill fetch-classes`), on
+(`dwarf --wit . --file main.ts -o my-app.wasm --polyfill fetch-classes`), on
 top of composing in `fetch-provider.wasm` as above.
 
 ## Known limitations
@@ -123,5 +123,5 @@ plain GET, and a POST with a body (checked with a raw TCP capture that the
 request is correctly `Transfer-Encoding: chunked` and reassembled correctly
 by a real server), composed via `wac plug`, both returning the expected
 status/headers/body — both through the raw `dwarf:fetch/client` interface
-and through `fetch.js`'s standard `fetch()`/`Response` wrapper (`.json()`,
+and through `fetch.ts`'s standard `fetch()`/`Response` wrapper (`.json()`,
 `.status`, `.ok`, `.headers.get()` all confirmed working).

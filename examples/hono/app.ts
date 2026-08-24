@@ -1,4 +1,7 @@
-// A Hono app served as a WASI 0.3 HTTP component.
+// A Hono app served as a WASI 0.3 HTTP component, in TypeScript.
+//
+// The wasi:http surface and dwarf's `wit` global are declared in
+// ./wit-http.d.ts; Hono brings its own types.
 //
 // Hono's own contract is `app.fetch(Request) -> Promise<Response>`, and
 // `wasi:http/handler`'s is `handle: async func(request) -> result<response>`.
@@ -8,6 +11,8 @@
 import { Hono } from "hono";
 import {
   Fields,
+  type IncomingRequest,
+  type OutgoingResponse,
   Request as WasiRequest,
   Response as WasiResponse,
 } from "wasi:http/types";
@@ -23,7 +28,7 @@ app.post("/echo", async (c) => c.text(await c.req.text()));
 // requests (one Store for the process); without it every request gets a
 // fresh instance from the Wizer snapshot and the count restarts at 1.
 let served = 0;
-let startedAt = null;
+let startedAt: number | null = null;
 
 app.get("/count", (c) => c.json({ served: ++served, startedAt }));
 
@@ -36,7 +41,7 @@ app.get("/count", (c) => c.json({ served: ++served, startedAt }));
 /// With `--persistent` there is one instance for the process, so `startedAt`
 /// is fixed and `served` climbs. Without it every request gets a fresh
 /// instance and both reset.
-export function _initialize() {
+export function _initialize(): void {
   startedAt = Date.now();
 }
 
@@ -44,7 +49,7 @@ const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 
 /** wasi:http scheme variant -> the string a URL needs. */
-function schemeOf(request) {
+function schemeOf(request: IncomingRequest): string {
   const scheme = request.getScheme();
   if (!scheme) return "http";
   if (scheme.tag === "HTTP") return "http";
@@ -59,8 +64,8 @@ function schemeOf(request) {
  * periapsis's js-dwarf-nuxt bridge established. Reading in 64 KiB bites
  * keeps a large upload from costing a host call per byte.
  */
-async function drainBody(stream) {
-  const chunks = [];
+async function drainBody(stream: WitReadable): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
   let total = 0;
   for (;;) {
     const chunk = await stream.read(65536);
@@ -78,7 +83,7 @@ async function drainBody(stream) {
 }
 
 /** The trailers future a response needs: `result<option<trailers>, error-code>`. */
-function resolvedTrailersFuture() {
+function resolvedTrailersFuture(): WitFutureReadable<unknown> {
   const { readable, writable } = wit.Future(wit.Future.RESULT_OPTION_OTHER_ERROR_CODE);
   writable.write({ tag: "ok", val: null });
   return readable;
@@ -90,8 +95,8 @@ function resolvedTrailersFuture() {
  * bindings, below any JS try/catch — the constants for a world are listable
  * at run time with `Object.keys(wit.Future.types)`.
  */
-function resolvedVoidFuture() {
-  const { readable, writable } = wit.Future(
+function resolvedVoidFuture(): WitFutureReadable<WitOk<void> | WitErr> {
+  const { readable, writable } = wit.Future<WitOk<void> | WitErr>(
     wit.Future.RESULT_VOID_WASI_HTTP_TYPES_0_3_0_ERROR_CODE,
   );
   writable.write({ tag: "ok", val: undefined });
@@ -99,7 +104,7 @@ function resolvedVoidFuture() {
 }
 
 export const handler = {
-  async handle(request) {
+  async handle(request: IncomingRequest): Promise<OutgoingResponse> {
     const method = (request.getMethod().tag ?? "get").toUpperCase();
     const pathWithQuery = request.getPathWithQuery() ?? "/";
     const authority = request.getAuthority() ?? "localhost";
@@ -110,7 +115,7 @@ export const handler = {
       headers.append(name, decoder.decode(Uint8Array.from(value)));
     }
 
-    let body;
+    let body: Uint8Array | undefined;
     if (method !== "GET" && method !== "HEAD") {
       const [bodyStream, bodyDone] = WasiRequest.consumeBody(
         request,
@@ -122,8 +127,15 @@ export const handler = {
       bodyDone.drop();
     }
 
+    // `body` is a Uint8Array over a plain ArrayBuffer, which is a valid
+    // BodyInit at run time; the cast is only about the DOM lib's stricter
+    // ArrayBufferLike generic.
     const res = await app.fetch(
-      new Request(url, { method, headers, ...(body?.length ? { body } : {}) }),
+      new Request(url, {
+        method,
+        headers,
+        ...(body?.length ? { body: body as unknown as BodyInit } : {}),
+      }),
     );
 
     const outBytes = new Uint8Array(await res.arrayBuffer());

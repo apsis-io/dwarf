@@ -49,6 +49,12 @@ wasmtime-wizer = { version = "46", features = ["component-model", "wasmtime"] }
 wac-graph = "0.10"
 indexmap = "2"
 regex = "1"
+oxc_transformer = "0.138.0"
+oxc_allocator = "0.138.0"
+oxc_parser = "0.138.0"
+oxc_codegen = "0.138.0"
+oxc_span = "0.138.0"
+oxc_semantic = "0.138.0"
 
 [build-dependencies]
 anyhow.workspace = true

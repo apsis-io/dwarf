@@ -12,11 +12,16 @@ function readExample(name) {
   return readFileSync(resolve(examplesDir, name), "utf-8");
 }
 
+// The examples are TypeScript. `jsSource` alone is not enough for one:
+// dwarf decides whether to strip types from the PATH, so `jsPath` has to
+// accompany it.
+
 describe("componentize", () => {
   it("produces a valid wasm component from hello example", async () => {
     const result = await componentize({
       witPath: resolve(examplesDir, "hello.wit"),
-      jsSource: readExample("hello.js"),
+      jsSource: readExample("hello.ts"),
+      jsPath: resolve(examplesDir, "hello.ts"),
     });
 
     expect(result).toBeDefined();
@@ -32,7 +37,8 @@ describe("componentize", () => {
   it("produces a valid wasm component from math-provider example", async () => {
     const result = await componentize({
       witPath: resolve(examplesDir, "math-provider.wit"),
-      jsSource: readExample("math-provider.js"),
+      jsSource: readExample("math-provider.ts"),
+      jsPath: resolve(examplesDir, "math-provider.ts"),
     });
 
     expect(result.component).toBeInstanceOf(Buffer);
@@ -42,7 +48,8 @@ describe("componentize", () => {
   it("accepts an explicit world name", async () => {
     const result = await componentize({
       witPath: resolve(examplesDir, "hello.wit"),
-      jsSource: readExample("hello.js"),
+      jsSource: readExample("hello.ts"),
+      jsPath: resolve(examplesDir, "hello.ts"),
       world: "hello",
     });
 
@@ -53,7 +60,8 @@ describe("componentize", () => {
   it("produces a component with stub-wasi", async () => {
     const result = await componentize({
       witPath: resolve(examplesDir, "hello.wit"),
-      jsSource: readExample("hello.js"),
+      jsSource: readExample("hello.ts"),
+      jsPath: resolve(examplesDir, "hello.ts"),
       stubWasi: true,
     });
 
@@ -64,7 +72,8 @@ describe("componentize", () => {
   it("accepts the opt-size runtime", async () => {
     const result = await componentize({
       witPath: resolve(examplesDir, "hello.wit"),
-      jsSource: readExample("hello.js"),
+      jsSource: readExample("hello.ts"),
+      jsPath: resolve(examplesDir, "hello.ts"),
       optSize: true,
     });
 
@@ -76,7 +85,8 @@ describe("componentize", () => {
     await expect(
       componentize({
         witPath: resolve(examplesDir, "hello.wit"),
-        jsSource: readExample("hello.js"),
+        jsSource: readExample("hello.ts"),
+      jsPath: resolve(examplesDir, "hello.ts"),
         runtime: "/nonexistent/runtime.wasm",
       }),
     ).rejects.toThrow(/runtime file not found/i);
@@ -84,7 +94,8 @@ describe("componentize", () => {
     await expect(
       componentize({
         witPath: resolve(examplesDir, "hello.wit"),
-        jsSource: readExample("hello.js"),
+        jsSource: readExample("hello.ts"),
+      jsPath: resolve(examplesDir, "hello.ts"),
         optSize: true,
         runtimeBytes: Buffer.from([]),
       }),
@@ -93,7 +104,8 @@ describe("componentize", () => {
     await expect(
       componentize({
         witPath: resolve(examplesDir, "hello.wit"),
-        jsSource: readExample("hello.js"),
+        jsSource: readExample("hello.ts"),
+      jsPath: resolve(examplesDir, "hello.ts"),
         runtime: "/nonexistent/runtime.wasm",
         runtimeBytes: Buffer.from([]),
       }),
@@ -113,7 +125,8 @@ describe("componentize", () => {
     await expect(
       componentize({
         witPath: resolve(examplesDir, "hello.wit"),
-        jsSource: readExample("hello.js"),
+        jsSource: readExample("hello.ts"),
+      jsPath: resolve(examplesDir, "hello.ts"),
         world: "nonexistent-world",
       }),
     ).rejects.toThrow();
@@ -157,7 +170,7 @@ describe("runCli", () => {
     try {
       const success = await runCli([
         "--wit", resolve(examplesDir, "hello.wit"),
-        "--js", resolve(examplesDir, "hello.js"),
+        "--file", resolve(examplesDir, "hello.ts"),
         "-o", output,
       ]);
 

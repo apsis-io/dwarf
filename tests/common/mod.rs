@@ -61,6 +61,7 @@ pub struct TestCase {
     wit_dir: Option<PathBuf>,
     world_name: Option<String>,
     script: Option<String>,
+    script_name: Option<String>,
     stub_wasi: bool,
     env_vars: Vec<(String, String)>,
     stdin: Option<String>,
@@ -88,6 +89,7 @@ impl TestCase {
             wit_dir: None,
             world_name: None,
             script: None,
+            script_name: None,
             stub_wasi: false,
             scriptc_profiles: Vec::new(),
             env_vars: Vec::new(),
@@ -117,6 +119,18 @@ impl TestCase {
 
     pub fn script(mut self, js: &str) -> Self {
         self.script = Some(js.to_string());
+        self
+    }
+
+    /// Set the entry source AND the file name it is written under.
+    ///
+    /// `script` leaves the entry pathless, which is all a plain JS test
+    /// needs. TypeScript is selected by extension, and imports resolve
+    /// relative to the entry, so anything exercising either has to put a
+    /// real, named file on disk.
+    pub fn script_named(mut self, name: &str, source: &str) -> Self {
+        self.script = Some(source.to_string());
+        self.script_name = Some(name.to_string());
         self
     }
 
@@ -171,11 +185,22 @@ impl TestCase {
             p
         };
 
+        // Only written when a name was asked for: an unnamed script stays
+        // pathless, exactly as before, so no existing test changes shape.
+        let entry_path = match self.script_name {
+            Some(ref name) => {
+                let p = dir.path().join(name);
+                fs::write(&p, self.script.as_deref().unwrap())?;
+                Some(p)
+            }
+            None => None,
+        };
+
         let polyfill_refs: Vec<&str> = self.polyfills.iter().map(String::as_str).collect();
         let opts = ComponentizeOpts {
             wit_path: &wit_path,
             js_source: self.script.as_deref().unwrap(),
-            js_path: None,
+            js_path: entry_path.as_deref(),
             module_root: None,
             world_name: self.world_name.as_deref(),
             stub_wasi: self.stub_wasi,
@@ -210,11 +235,22 @@ impl TestCase {
             p
         };
 
+        // Only written when a name was asked for: an unnamed script stays
+        // pathless, exactly as before, so no existing test changes shape.
+        let entry_path = match self.script_name {
+            Some(ref name) => {
+                let p = dir.path().join(name);
+                fs::write(&p, self.script.as_deref().unwrap())?;
+                Some(p)
+            }
+            None => None,
+        };
+
         let polyfill_refs: Vec<&str> = self.polyfills.iter().map(String::as_str).collect();
         let opts = ComponentizeOpts {
             wit_path: &wit_path,
             js_source: self.script.as_deref().unwrap(),
-            js_path: None,
+            js_path: entry_path.as_deref(),
             module_root: None,
             world_name: self.world_name.as_deref(),
             stub_wasi: self.stub_wasi,

@@ -6,10 +6,13 @@
 // interface composed in via `wac plug` (see README.md).
 import { fetch as wireFetch } from "dwarf:fetch/client";
 
-export async function fetch(input, init = {}) {
+export async function fetch(
+  input: string | Request,
+  init: RequestInit = {},
+): Promise<Response> {
   const request = input instanceof Request ? input : new Request(input, init);
 
-  const headers = [];
+  const headers: WireHeader[] = [];
   for (const [name, value] of request.headers.entries()) {
     headers.push({ name, value });
   }

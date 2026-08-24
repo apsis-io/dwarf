@@ -1,9 +1,9 @@
 // Implement the math interface
-function add(a, b) {
+function add(a: number, b: number): number {
     return a + b;
 }
 
-function multiply(a, b) {
+function multiply(a: number, b: number): number {
     return a * b;
 }
 

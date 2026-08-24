@@ -3,9 +3,9 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![WASI 0.3](https://img.shields.io/badge/WASI-0.3%20%C2%B7%20Preview%203-6f42c1.svg)](https://github.com/WebAssembly/WASI/blob/main/Proposals.md)
 
-**JavaScript to WebAssembly components, written for WASI 0.3.**
+**TypeScript and JavaScript to WebAssembly components, written for WASI 0.3.**
 
-`dwarf` takes a JavaScript file and a
+`dwarf` takes a TypeScript or JavaScript file and a
 [WIT](https://component-model.bytecodealliance.org/design/wit.html) world and
 produces a standalone
 [component](https://component-model.bytecodealliance.org/), using
@@ -14,7 +14,7 @@ SpiderMonkey embedding, with full typed bindings for arbitrary worlds rather
 than just the standard WASI ones.
 
 The part worth leading with is **WASI 0.3 (Preview 3)**. An `async func` export
-is an `async` JavaScript function; a `stream<u8>` is an object you `read()` and
+is an `async` function; a `stream<u8>` is an object you `read()` and
 `writeAll()`; a `future<T>` is one you `await`. Concurrency is the component
 model's own, not a callback shape bolted on top, and 0.2 remains supported for
 worlds that still need it.
@@ -38,7 +38,7 @@ build from source.
 ### Why WASI 0.3
 
 0.3 is the version where the component model's concurrency stops needing a
-translation layer, and that shows up directly in the JavaScript you write.
+translation layer, and that shows up directly in the code you write.
 
 ```wit
 world greeter {
@@ -46,8 +46,8 @@ world greeter {
 }
 ```
 
-```js
-export async function greet(name) {
+```ts
+export async function greet(name: string): Promise<string> {
     return `Hello, ${name}!`;   // an `async func` is just an async function
 }
 ```
@@ -72,7 +72,7 @@ the 0.3 implementation.
 
 ### How it works
 
-`dwarf` takes a JavaScript source file and a
+`dwarf` takes a source file (TypeScript or JavaScript) and a
 [WIT](https://component-model.bytecodealliance.org/design/wit.html) definition,
 and produces a standalone WebAssembly component that can run on any
 component-model runtime (see [Running the output](#running-the-output)).
@@ -142,13 +142,13 @@ world hello {
 }
 ```
 
-**2. Implement it in JavaScript** (`hello.js`):
+**2. Implement it** (`hello.ts`):
 
-JavaScript sources are ES modules. Export WIT functions and interfaces directly
-from the module.
+Sources are ES modules, TypeScript or JavaScript. Export WIT functions and
+interfaces directly from the module.
 
-```js
-export function greet(name) {
+```ts
+export function greet(name: string): string {
     return `Hello, ${name}!`;
 }
 ```
@@ -156,8 +156,11 @@ export function greet(name) {
 **3. Build the component:**
 
 ```bash
-dwarf --wit hello.wit --file hello.js -o hello.wasm
+dwarf --wit hello.wit --file hello.ts -o hello.wasm
 ```
+
+A `.ts` file needs no separate compile step: dwarf strips the types itself
+(see [TypeScript](#typescript)). Plain `.js` works exactly as before.
 
 **4. Run it:**
 
@@ -170,6 +173,53 @@ The built-in runtime published with dwarf includes component-model
 async support. Pass `--sync` to embed the built-in non-async runtime instead,
 producing components that run on hosts without component-model async support. A
 custom runtime can also be supplied with `--runtime`.
+
+## TypeScript
+
+`--file app.ts` is all it takes. dwarf strips the types itself, in-process
+(via [oxc](https://oxc.rs/)) — no `tsc`, no `esbuild`, nothing extra on
+`PATH`, and no build step between your source and the component.
+
+```bash
+dwarf --wit wit --file app.ts -o app.wasm
+```
+
+It applies to imports too, so a project is TypeScript all the way down
+rather than only at its entry point:
+
+```ts
+// app.ts
+import { render } from "./greeting.js";   // resolves greeting.ts
+export function greet(name: string): string {
+    return render({ name });
+}
+```
+
+That `./greeting.js` spelling is deliberate: TypeScript's own convention
+under NodeNext is that a specifier names the *emitted* module. dwarf
+resolves `.js` to the `.ts` beside it, so idiomatic source works unchanged,
+and extensionless (`./greeting`) works too. A `.js` entry may import `.ts`
+modules and vice versa, which is what a half-migrated tree looks like.
+
+Everything TypeScript emits code for — `enum`, parameter properties,
+decorators — is compiled, not merely erased. Type-only syntax disappears.
+
+**Types are stripped, never checked.** This is the same contract as Node's
+own type stripping and esbuild: code `tsc` would reject still builds and
+still runs. Keep `tsc --noEmit` in your editor and CI for that job — a
+component builder that silently became your type checker would slow every
+build down to do worse what your toolchain already does. A *syntax* error,
+by contrast, fails the build and says which file.
+
+For the types of the WIT world itself — what a `record` looks like, which
+imports exist — generate declarations rather than writing them by hand:
+
+```bash
+dwarf --wit wit --file app.ts --emit-types types/ -o app.wasm
+```
+
+See [TypeScript Types](#typescript-types) for what `--emit-types` produces
+and the two places jco's conventions are patched to match dwarf's.
 
 ## Running the output
 
@@ -294,8 +344,8 @@ convention: set it and the snapshot's clock reads that instant, leave it and
 the clock reads the Unix epoch. The same value always gives the same bytes.
 
 ```bash
-dwarf --wit hello.wit --file hello.js -o a.wasm
-dwarf --wit hello.wit --file hello.js -o b.wasm
+dwarf --wit hello.wit --file hello.ts -o a.wasm
+dwarf --wit hello.wit --file hello.ts -o b.wasm
 cmp a.wasm b.wasm && echo identical
 ```
 
@@ -445,7 +495,7 @@ Point it at a module and the boundary is derived from that module's
 exported signatures:
 
 ```bash
-dwarf --wit app.wit --file app.js --optimize hot.ts -o app.wasm
+dwarf --wit app.wit --file app.ts --optimize hot.ts -o app.wasm
 ```
 
 JavaScript imports it under `scriptc:<module name>/ops`, and your world
@@ -519,7 +569,7 @@ A profile names the module and the functions to expose:
 ```
 
 ```bash
-dwarf --wit app.wit --file app.js --scriptc hot/profile.json -o app.wasm
+dwarf --wit app.wit --file app.ts --scriptc hot/profile.json -o app.wasm
 ```
 
 Either flag needs a scriptc install and the toolchain behind it (zig and
@@ -1114,7 +1164,7 @@ The npm package exposes both a CLI and a programmatic API.
 ### CLI
 
 ```bash
-npx dwarf --wit hello.wit --file hello.js -o hello.wasm
+npx dwarf --wit hello.wit --file hello.ts -o hello.wasm
 ```
 
 (Or, if you installed the package globally, just `dwarf ...`.)
