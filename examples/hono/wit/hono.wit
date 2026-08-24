@@ -1,0 +1,14 @@
+package example:hono;
+
+/// A Hono app served as a WASI 0.3 HTTP component.
+///
+/// Exporting `wasi:http/handler` is what makes this servable by any p3 host
+/// (`wasmtime serve`) — the world says "give me a request, I answer with a
+/// response", which is exactly the shape Hono's own `app.fetch` has.
+world hono {
+    export wasi:http/handler@0.3.0;
+
+    /// So `console.log` works — a server without logging is a bad example.
+    import wasi:cli/stdout@0.3.0;
+    import wasi:cli/stderr@0.3.0;
+}

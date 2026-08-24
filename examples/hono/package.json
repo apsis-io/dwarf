@@ -1,0 +1,15 @@
+{
+  "name": "dwarf-example-hono",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "hono": "^4.13.3"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "nub",
+      "version": "^0.7.5",
+      "onFail": "ignore"
+    }
+  }
+}
