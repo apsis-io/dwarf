@@ -16,6 +16,35 @@ use rquickjs::function::Constructor;
 use rquickjs::{JsLifetime, Value};
 use wit_dylib_ffi::{ExportFunction, Interpreter, Resource, Wit};
 
+/// Push a SYNC export's return value, refusing a Promise by name.
+///
+/// `export_call` is the synchronous path — an async WIT export goes through
+/// `export_async_start` — so a Promise arriving here always means the same
+/// mistake: the JS function is `async` (or returns a promise) while its WIT
+/// export is declared as a plain `func`. Left alone it surfaces far from the
+/// cause, as a lift failure inside the ABI:
+///
+///     expected string: FromJs { from: "promise", to: "string" }
+///     wasm trap: wasm `unreachable` instruction executed
+///
+/// which names neither the export nor the fix. This is the `require_export`
+/// treatment for the other half of the same class of mistake.
+fn push_sync_result<'js>(
+    cx: &mut QjsCallContext,
+    ctx: &rquickjs::Ctx<'js>,
+    value: Value<'js>,
+    wit_name: &str,
+) {
+    if value.is_promise() {
+        panic!(
+            "`{wit_name}` returned a Promise, but its WIT export is a synchronous `func`. \
+             Declare it async in the WIT (`export {wit_name}: async func(...)`) so the \
+             component-model async ABI awaits it, or return a plain value from the JS."
+        );
+    }
+    cx.push_value(ctx, value);
+}
+
 /// Has this INSTANCE run the reactor init hook yet?
 ///
 /// A plain static, which is what makes it per-instance: it lives in linear
@@ -166,7 +195,7 @@ impl Interpreter for QjsInterpreter {
                     .unwrap_or_else(|err| panic!("Failed to call '{}': {}", method_name, err));
 
                 if let Some(value) = value {
-                    cx.push_value(ctx, value);
+                    push_sync_result(cx, ctx, value, name);
                 }
             });
         } else if let Some(rest) = name.strip_prefix("[static]") {
@@ -208,7 +237,7 @@ impl Interpreter for QjsInterpreter {
                     .unwrap_or_else(|err| panic!("Failed to call '{}': {}", method_name, err));
 
                 if let Some(value) = value {
-                    cx.push_value(ctx, value);
+                    push_sync_result(cx, ctx, value, name);
                 }
             });
         } else {
@@ -240,7 +269,7 @@ impl Interpreter for QjsInterpreter {
                     .unwrap_or_else(|err| panic!("Failed to call '{}': {}", func.name(), err));
 
                 if let Some(value) = value {
-                    cx.push_value(ctx, value);
+                    push_sync_result(cx, ctx, value, func.name());
                 }
             });
         }

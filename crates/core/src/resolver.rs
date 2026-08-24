@@ -79,13 +79,15 @@ impl Resolver {
                 )
             })?
             .path()
-            .canonicalize()
-            .with_context(|| {
-                format!(
-                    "failed to canonicalize JavaScript import {specifier:?} from {}",
-                    referrer.display()
-                )
-            })?;
+            .to_path_buf();
+        // Lexically normalized, NOT canonicalized. `ResolveOptions` already
+        // asks oxc for symlink-preserving paths (`symlinks: false`), and
+        // canonicalizing here threw that away: pnpm, bun and nub all link
+        // `node_modules/<pkg>` into a global content-addressed store, so the
+        // canonical path lands outside the module root and every dependency
+        // was rejected with "is not under module root". Only a flat npm
+        // `node_modules` worked.
+        let resolved = lexical_normalize(&resolved);
         let relative = resolved.strip_prefix(&self.inner.root).with_context(|| {
             format!(
                 "resolved JavaScript module {} is not under module root {}",
@@ -107,10 +109,12 @@ impl Resolver {
         let path = path
             .strip_prefix('/')
             .ok_or_else(|| anyhow!("JavaScript module path must be absolute: {path}"))?;
-        let path = self.inner.root.join(path);
-        let path = path
-            .canonicalize()
-            .with_context(|| format!("failed to resolve JavaScript module {}", path.display()))?;
+        let path = lexical_normalize(&self.inner.root.join(path));
+        // The containment check is LEXICAL, which is what lets a symlinked
+        // package store work: `..` still cannot climb out of the root, but a
+        // symlink the dependency tree itself points at is followed when the
+        // file is read. Escaping by symlink is not a threat model this tool
+        // has — it reads files the caller already chose to depend on.
         if !path.starts_with(&self.inner.root) {
             anyhow::bail!(
                 "JavaScript module path {} escapes module root {}",
@@ -145,6 +149,32 @@ impl Resolver {
 /// therefore reproducible. That is a narrower default than before: what
 /// used to work implicitly by being run from the right directory now needs
 /// the flag, and says so with the "outside the module root" error.
+/// Resolve `.` and `..` by PATH ARITHMETIC alone — no filesystem, and in
+/// particular no symlink resolution.
+///
+/// `canonicalize` would answer where a file really lives; this answers what
+/// the module graph called it. Those differ exactly when a package manager
+/// links `node_modules/<pkg>` into a store, which is the common case for
+/// pnpm/bun/nub, and the module root is a statement about the graph.
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            PathComponent::CurDir => {}
+            PathComponent::ParentDir => {
+                // Pop a real segment; a leading `..` (nothing to pop) is kept
+                // so the result stays outside any root and the caller's
+                // containment check rejects it.
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
 fn default_module_root(entry: &Path) -> Result<PathBuf> {
     entry
         .parent()
