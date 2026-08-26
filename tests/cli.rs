@@ -392,6 +392,35 @@ fn test_cli_hints_at_missing_terminator_on_cascading_parse_errors() {
 }
 
 #[test]
+fn test_cli_creates_the_output_directory() {
+    // `-o dist/app.wasm` into a tree that has no `dist/` yet is an ordinary
+    // ask. It used to fail at the very end, after the whole build had been
+    // done, with an I/O error that named neither the directory nor the fix.
+    let dir = TempDir::new().unwrap();
+    let wit_path = dir.path().join("test.wit");
+    let js_path = dir.path().join("app.js");
+    fs::write(
+        &wit_path,
+        "package test:mk;\n\nworld mk { export ping: func() -> string; }\n",
+    )
+    .unwrap();
+    fs::write(&js_path, "export function ping() { return 'pong'; }\n").unwrap();
+
+    let out = dir.path().join("dist").join("nested").join("app.wasm");
+    dwarf_cmd()
+        .arg("--wit")
+        .arg(&wit_path)
+        .arg("--file")
+        .arg(&js_path)
+        .arg("--output")
+        .arg(&out)
+        .assert()
+        .success();
+
+    assert!(out.exists(), "the component should be at {}", out.display());
+}
+
+#[test]
 fn test_cli_still_accepts_the_old_js_flag() {
     // `--js`/`-j` were renamed to `--file`/`-f`, since the flag names the
     // build's input and a TypeScript project should not have to say "js" on

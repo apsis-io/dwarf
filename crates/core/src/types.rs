@@ -83,22 +83,32 @@ pub fn emit_ts_types(
 ///   omittable `field?: T` (record fields), but dwarf's runtime always
 ///   includes the property/value and uses `null` for "none", never
 ///   `undefined` and never omits the property.
-/// - A `stream<T>` value is typed `ReadableStream<T>`, but dwarf's runtime
-///   hands back its own `StreamReadable<T>` wrapper (`read(count?)`,
-///   `cancelRead()`, `drop()`) - not a real `ReadableStream` (no
-///   `.getReader()`).
-/// - A `future<T>` value *in parameter or tuple-return-element position* is
-///   typed as a bare `Promise<T>`, but dwarf's runtime hands back its own
-///   `FutureReadable<T>` wrapper (`read()`, `cancelRead()`, `drop()`) there
-///   too - not a real `Promise` (no direct `.then()`, must call `.read()`
-///   first). This patch deliberately does NOT touch a function's own
-///   top-level return type, since `Promise<T>` there is genuinely ambiguous
-///   between a real Promise (a genuinely `async` WIT function, which dwarf's
-///   runtime represents as an actual native Promise) and a `future<T>` value
-///   returned directly from a *non-async* function - jco's output doesn't
-///   textually distinguish these two cases at that position, so patching it
-///   blindly would risk turning a real Promise into a wrapper type or vice
-///   versa. Hand-verify against the WIT signature for that specific case.
+/// - A `stream<T>` value is typed `AsyncIterable<T>` (older jco:
+///   `ReadableStream<T>`), but dwarf's runtime hands back its own
+///   `StreamReadable<T>` wrapper (`read(count?)`, `cancelRead()`, `drop()`).
+///   Neither generated shape is usable: `for await (const b of stream)`
+///   typechecks against `AsyncIterable` and does nothing at run time, where
+///   `await stream.read(256)` is what works.
+/// - A `future<T>` value is typed `PromiseLike<T>`, but dwarf's runtime hands
+///   back its own `FutureReadable<T>` wrapper (`read()`, `cancelRead()`,
+///   `drop()`) - not a thenable. `await`ing one directly typechecks and never
+///   waits on the future at all.
+///
+/// Both spellings are handled in EVERY position, including a function's own
+/// top-level return. That used to be excluded on the grounds that a
+/// `Promise<T>` return is ambiguous between a genuinely `async` WIT function
+/// (a real native Promise) and a `future<T>` returned from a non-async one.
+/// Current jco distinguishes them: `PromiseLike<T>` for the future value,
+/// `Promise<T>` for the async function. So `PromiseLike` is rewritten
+/// unconditionally, and a bare `Promise` return is still left alone, which is
+/// correct rather than merely cautious.
+///
+/// Two things made this worth chasing rather than documenting. The patches
+/// targeted jco's OLD spellings, so against current jco they silently matched
+/// nothing and the output was pure canonical-ABI - and a generated
+/// declaration is trusted exactly because it was generated, so the failure
+/// arrives as code that typechecks and does not run. Reported by greenfield
+/// after hitting it on `wasi:sockets`.
 ///
 /// Patches every `.d.ts` under `dir` in place to match. This is a best-effort
 /// textual fix, not a from-scratch type generator - deeply nested option
@@ -151,6 +161,13 @@ static READABLE_STREAM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"ReadableStream<({BALANCED_GENERIC_BODY})>")).unwrap());
 static PROMISE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"Promise<({BALANCED_GENERIC_BODY})>")).unwrap());
+/// Current jco's spelling for `stream<T>`, in every position.
+static ASYNC_ITERABLE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"AsyncIterable<({BALANCED_GENERIC_BODY})>")).unwrap());
+/// Current jco's spelling for a `future<T>` VALUE, as distinct from the
+/// `Promise<T>` it emits for a genuinely `async func`.
+static PROMISE_LIKE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"PromiseLike<({BALANCED_GENERIC_BODY})>")).unwrap());
 static TUPLE_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[([^\[\]]*)\]").unwrap());
 static PARAM_LIST_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\(([^()]*)\)").unwrap());
 
@@ -187,6 +204,20 @@ fn patch_ts_source(src: &str) -> String {
     let src = READABLE_STREAM_RE
         .replace_all(&src, "StreamReadable<$1>")
         .into_owned();
+    // Current jco's stream spelling. A `stream<T>` is dwarf's wrapper in
+    // EVERY position - handing one to an import passes the readable end
+    // just as receiving one does - so this needs no position analysis.
+    let src = ASYNC_ITERABLE_RE
+        .replace_all(&src, "StreamReadable<$1>")
+        .into_owned();
+    // Current jco's future spelling, and the reason a top-level return no
+    // longer has to be left alone: `PromiseLike<T>` is a `future<T>` value,
+    // `Promise<T>` is a genuinely `async func`. Must run before the
+    // `Promise<...>` pass below, which is only for jco versions that spelled
+    // both the same.
+    let src = PROMISE_LIKE_RE
+        .replace_all(&src, "FutureReadable<$1>")
+        .into_owned();
     let src = patch_future_positions(&src);
 
     let mut prelude = String::new();
@@ -197,4 +228,81 @@ fn patch_ts_source(src: &str) -> String {
         prelude.push_str(FUTURE_READABLE_IFACE);
     }
     prelude + &src
+}
+
+#[cfg(test)]
+mod tests {
+    use super::patch_ts_source;
+
+    /// Verbatim from `jco types` (0.x, 2026-08) for a world exporting a
+    /// stream, a non-async func returning `future<result<_, string>>`, a
+    /// genuinely `async func`, and a tuple mixing the first two.
+    const JCO_OUTPUT: &str = r#"
+export function makeStream(): AsyncIterable<number>;
+export function takeStream(s: AsyncIterable<number>): void;
+export function send(data: Uint8Array): PromiseLike<Result<void, string>>;
+export function fetchIt(url: string): Promise<string>;
+export function split(): [AsyncIterable<number>, PromiseLike<Result<void, string>>];
+export function maybe(n: bigint | undefined): bigint | undefined;
+"#;
+
+    #[test]
+    fn streams_become_dwarfs_wrapper_in_every_position() {
+        let patched = patch_ts_source(JCO_OUTPUT);
+
+        assert!(
+            !patched.contains("AsyncIterable"),
+            "jco's stream spelling should be gone: {patched}"
+        );
+        assert!(patched.contains("makeStream(): StreamReadable<number>"));
+        assert!(patched.contains("takeStream(s: StreamReadable<number>)"));
+        assert!(patched.contains("interface StreamReadable<T>"));
+    }
+
+    #[test]
+    fn a_future_return_is_patched_but_an_async_func_return_is_not() {
+        // The distinction the whole fix rests on: `PromiseLike<T>` is a
+        // future VALUE and must become the wrapper; `Promise<T>` is a
+        // genuinely async function and must stay a real Promise. Getting
+        // this backwards would be worse than not patching at all.
+        let patched = patch_ts_source(JCO_OUTPUT);
+
+        assert!(
+            patched.contains("send(data: Uint8Array): FutureReadable<Result<void, string>>"),
+            "a future return should become the wrapper: {patched}"
+        );
+        assert!(
+            patched.contains("fetchIt(url: string): Promise<string>"),
+            "an async func must keep its real Promise: {patched}"
+        );
+        assert!(patched.contains("interface FutureReadable<T>"));
+    }
+
+    #[test]
+    fn a_tuple_mixing_both_is_patched_elementwise() {
+        let patched = patch_ts_source(JCO_OUTPUT);
+        assert!(
+            patched.contains("split(): [StreamReadable<number>, FutureReadable<Result<void, string>>]"),
+            "{patched}"
+        );
+    }
+
+    #[test]
+    fn the_older_jco_spellings_are_still_handled() {
+        // dwarf targeted these before jco renamed them; a pinned older jco
+        // should not regress just because the new names are handled too.
+        let old = "export function f(s: ReadableStream<number>, done: Promise<void>): void;\n";
+        let patched = patch_ts_source(old);
+        assert!(patched.contains("s: StreamReadable<number>"), "{patched}");
+        assert!(patched.contains("done: FutureReadable<void>"), "{patched}");
+    }
+
+    #[test]
+    fn dwarfs_own_conventions_still_apply() {
+        let patched = patch_ts_source(JCO_OUTPUT);
+        assert!(
+            patched.contains("maybe(n: number | null): number | null"),
+            "u64 is a number and none is null: {patched}"
+        );
+    }
 }

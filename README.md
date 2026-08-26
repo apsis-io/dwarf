@@ -308,17 +308,30 @@ cargo build --release --features opt-size
 `--emit-types <DIR>` generates `.d.ts` declarations for the WIT world via
 [`jco types`](https://github.com/bytecodealliance/jco) (must be on `PATH`,
 see [Prerequisites](#prerequisites)). jco's output assumes its own
-(componentize-js-oriented) JS binding conventions, which diverge from dwarf's
-actual runtime in two confirmed ways — `u64`/`s64` typed `bigint` instead of
-`number`, and `option<T>` typed `T | undefined`/an omittable `field?: T`
-instead of dwarf's actual `T | null` (dwarf always includes the
-property/value, using `null` for "none," never `undefined` and never omitting
-it). dwarf patches jco's generated files to match its own conventions before
-writing them out. This is a best-effort textual patch, not a from-scratch
-type generator — deeply nested option shapes (e.g. `option<option<T>>`,
-which dwarf represents with a tagged `{ tag, val }` form rather than plain
-`null`) aren't specifically handled and may still read as jco's own
-convention.
+(componentize-js-oriented) JS binding conventions, so dwarf patches the
+generated files to match its actual runtime before writing them out:
+
+| WIT | jco emits | dwarf's runtime |
+|---|---|---|
+| `u64`/`s64` | `bigint` | `number` |
+| `option<T>` | `T \| undefined`, or an omittable `field?: T` | `T \| null` — always present, `null` for none |
+| `stream<T>` | `AsyncIterable<T>` | `StreamReadable<T>` — `await s.read(n)`, not `for await` |
+| `future<T>` | `PromiseLike<T>` | `FutureReadable<T>` — `await f.read()`, not `await f` |
+| `async func` | `Promise<T>` | `Promise<T>`, a real one — left alone |
+
+The last two matter most, because their failure mode is code that
+typechecks and silently does nothing: iterating an `AsyncIterable` that
+isn't one, or `await`ing a future that is not a thenable, so the wait never
+happens. `PromiseLike` versus `Promise` is exactly how a `future<T>` return
+is told apart from a genuinely `async func` — the same position, different
+type.
+
+This is a best-effort textual patch, not a from-scratch type generator —
+deeply nested option shapes (e.g. `option<option<T>>`, which dwarf
+represents with a tagged `{ tag, val }` form rather than plain `null`) and
+generics nested more than two levels deep aren't specifically handled and
+may still read as jco's own convention. If you are writing declarations by
+hand instead, the table above is the mapping to write them against.
 
 ## Reproducible builds
 

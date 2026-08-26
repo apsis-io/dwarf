@@ -217,6 +217,17 @@ pub async fn run(args: Vec<String>) -> Result<()> {
     )
     .await?;
 
+    // Create the output's directory rather than failing at the very end of a
+    // build that has already done all its work. `-o dist/app.wasm` into a
+    // fresh checkout is an ordinary thing to ask for, and the failure it
+    // produced named an I/O error rather than the directory.
+    if let Some(parent) = args.output.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("failed to create output directory {}", parent.display())
+        })?;
+    }
     fs::write(&args.output, &component)
         .with_context(|| format!("failed to write output to {}", args.output.display()))?;
 

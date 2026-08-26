@@ -172,6 +172,12 @@ names](../README.md#version-pinned-p3-names) section for why.
 | `enum` | string (case name) |
 | `flags` | object of camelCase booleans |
 | `own<R>`/`borrow<R>` | resource class instance |
+| `stream<T>` | `{read(n), writeAll(b), cancelRead(), drop()}` — NOT an `AsyncIterable`, so no `for await` |
+| `future<T>` | `{read(), cancelRead(), drop()}` — NOT a thenable, so `await f.read()`, not `await f` |
+| `async func` | a real `Promise` |
+
+`--emit-types` patches jco's output to all of the above; the last three are
+the ones whose generated form typechecks and then silently does nothing.
 
 Full details incl. imported resources, async exports, streams/futures:
 README's [WIT Type Mappings](../README.md#wit-type-mappings) and

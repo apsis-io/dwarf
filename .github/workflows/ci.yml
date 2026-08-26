@@ -86,8 +86,11 @@ jobs:
       - name: Setup runtime wasm cache
         uses: ./.github/actions/setup-runtime-cache
 
+      # `-p dwarf` alone runs the integration suite but NOT dwarf-core's own
+      # unit tests: the workspace's default-members exclude crates/core, so
+      # every #[test] in it was silently never executed here.
       - name: Run tests
-        run: cargo test -p dwarf
+        run: cargo test -p dwarf -p dwarf-core
 
   npm-test:
     name: NPM package tests
