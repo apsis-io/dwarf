@@ -852,7 +852,7 @@ dependencies = [
  "tokio-tungstenite",
  "wasmtime",
  "wasmtime-wasi",
- "wit-parser 0.252.0",
+ "wit-parser 0.254.0",
 ]
 
 [[package]]
@@ -886,9 +886,9 @@ dependencies = [
  "wasmtime-wasi",
  "wasmtime-wasi-io",
  "wasmtime-wizer",
- "wit-component 0.252.0",
+ "wit-component 0.254.0",
  "wit-dylib",
- "wit-parser 0.252.0",
+ "wit-parser 0.254.0",
 ]
 
 [[package]]
@@ -4545,26 +4545,6 @@ dependencies = [
 
 [[package]]
 name = "wit-component"
-version = "0.252.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76db0662b590f45d33d0e363fa13539a5a1eecd35d5a12fe208c335461c1053d"
-dependencies = [
- "anyhow",
- "bitflags",
- "indexmap",
- "log",
- "serde",
- "serde_derive",
- "serde_json",
- "wasm-encoder 0.252.0",
- "wasm-metadata 0.252.0",
- "wasmparser 0.252.0",
- "wat",
- "wit-parser 0.252.0",
-]
-
-[[package]]
-name = "wit-component"
 version = "0.254.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0e65bb94c369b3c4741ce3d1d2704b1fec93db7c540df0e521a097e7ceeb5be"
@@ -4579,19 +4559,20 @@ dependencies = [
  "wasm-encoder 0.254.0",
  "wasm-metadata 0.254.0",
  "wasmparser 0.254.0",
+ "wat",
  "wit-parser 0.254.0",
 ]
 
 [[package]]
 name = "wit-dylib"
-version = "0.252.0"
+version = "0.254.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad95a743e5286ae1aa4b0a91b093ef13da91776f7672faa89fb7df6d89323765"
+checksum = "4ac6dae39bec0002a1ec4f8a952ca562048b5a3876c722d20cdbb0b9c8069fe0"
 dependencies = [
  "anyhow",
  "indexmap",
- "wasm-encoder 0.252.0",
- "wit-parser 0.252.0",
+ "wasm-encoder 0.254.0",
+ "wit-parser 0.254.0",
 ]
 
 [[package]]
@@ -4616,25 +4597,6 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser 0.251.0",
-]
-
-[[package]]
-name = "wit-parser"
-version = "0.252.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4266bea110371c620ccf3201c5023676046bc4556e5c7cfb5d500bda5ebc162d"
-dependencies = [
- "anyhow",
- "hashbrown 0.17.1",
- "id-arena",
- "indexmap",
- "log",
- "semver",
- "serde",
- "serde_derive",
- "serde_json",
- "unicode-ident",
- "wasmparser 0.252.0",
 ]
 
 [[package]]

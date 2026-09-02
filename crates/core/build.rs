@@ -6,7 +6,7 @@ use std::{env, fs};
 use anyhow::{Context, Result, bail};
 use flate2::read::GzDecoder;
 
-const WASI_SDK_VERSION: &str = "33";
+const WASI_SDK_VERSION: &str = "34";
 const WASI_SKD_DL_URL: &str = "https://github.com/WebAssembly/wasi-sdk/releases/download";
 
 const BINARYEN_VERSION: &str = "130";

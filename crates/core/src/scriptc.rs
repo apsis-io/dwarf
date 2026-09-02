@@ -176,6 +176,10 @@ pub fn import_into_world(
             stability: Stability::Unknown,
             docs: Default::default(),
             span: Default::default(),
+            // wit-parser 0.254 carries an `@external-id` attribute here;
+            // dwarf synthesises this import rather than parsing one, so
+            // there is nothing to preserve.
+            external_id: None,
         },
     );
     Ok(())
