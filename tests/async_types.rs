@@ -1796,3 +1796,87 @@ async fn test_host_stream_to_guest() {
 
     assert_eq!(count, 5);
 }
+
+/// Async resource members: a method whose receiver is the resource, and a
+/// static whose `this` is the class.
+///
+/// Both used to be unreachable. The async export wrapper looked up
+/// `func.name().to_lower_camel_case()` on the exports object, and a
+/// resource member's WIT name is `[method]counter.bump`, which camel-cases
+/// into nothing that exists. Ported from componentize-qjs #77.
+#[tokio::test]
+async fn test_async_resource_members() {
+    let mut instance = TestCase::new()
+        .wit(
+            r#"
+            package test:async-res;
+
+            interface counter-api {
+                resource counter {
+                    constructor(initial: u32);
+                    bump: async func(by: u32) -> u32;
+                    describe: static async func(label: string) -> string;
+                }
+            }
+
+            world async-res {
+                export counter-api;
+            }
+            "#,
+        )
+        .script(
+            r#"
+            class Counter {
+                constructor(initial) { this.value = initial; }
+                async bump(by) { this.value += by; return this.value; }
+                static tag() { return "counter"; }
+                // `this` here is the class - the other half of #77.
+                static async describe(label) { return `${label}:${this.tag()}`; }
+            }
+            export const counterApi = { Counter };
+            "#,
+        )
+        .build_async()
+        .await
+        .unwrap();
+
+    let (inst, store) = instance.parts();
+    let iface = inst
+        .get_export_index(&mut *store, None, "test:async-res/counter-api")
+        .expect("interface export not found");
+
+    let ctor_idx = inst
+        .get_export_index(&mut *store, Some(&iface), "[constructor]counter")
+        .expect("[constructor]counter not found");
+    let ctor = inst.get_func(&mut *store, ctor_idx).unwrap();
+    let mut created = [Val::Bool(false)];
+    ctor.call_async(&mut *store, &[Val::U32(40)], &mut created)
+        .await
+        .unwrap();
+    let counter = created[0].clone();
+
+    let bump_idx = inst
+        .get_export_index(&mut *store, Some(&iface), "[method]counter.bump")
+        .expect("[method]counter.bump not found");
+    let bump = inst.get_func(&mut *store, bump_idx).unwrap();
+    let mut results = [Val::Bool(false)];
+    bump.call_async(&mut *store, &[counter.clone(), Val::U32(2)], &mut results)
+        .await
+        .unwrap();
+    assert_eq!(results[0], Val::U32(42), "receiver must be the resource");
+
+    let describe_idx = inst
+        .get_export_index(&mut *store, Some(&iface), "[static]counter.describe")
+        .expect("[static]counter.describe not found");
+    let describe = inst.get_func(&mut *store, describe_idx).unwrap();
+    let mut results = [Val::Bool(false)];
+    describe
+        .call_async(&mut *store, &[Val::String("c".into())], &mut results)
+        .await
+        .unwrap();
+    assert_eq!(
+        results[0],
+        Val::String("c:counter".into()),
+        "a static's `this` must be its class"
+    );
+}

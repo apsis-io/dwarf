@@ -232,7 +232,12 @@ impl Interpreter for QjsInterpreter {
                     .get(method_name)
                     .unwrap_or_else(|e| panic!("static method '{}' not found: {}", method_name, e));
 
-                let args = cx.stack_into_args(ctx);
+                // A static method's `this` is its class. Without it, one
+                // referring to another static (`this.parse(...)`, a normal
+                // thing to write) got undefined. Ported from
+                // componentize-qjs #77.
+                let mut args = cx.stack_into_args(ctx);
+                args.this(class_obj).expect("failed to set static this");
                 let boundary = ResultBoundary::new(func.result());
                 let value = boundary
                     .lower_call(ctx, js_func.call_arg::<Value>(args))

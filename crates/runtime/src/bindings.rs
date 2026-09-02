@@ -12,7 +12,7 @@ use crate::futures::{make_future, register_future_classes};
 use crate::result::ResultBoundary;
 use crate::streams::{make_stream, register_stream_classes};
 use crate::task::Pending;
-use crate::trivia::iface_lookup;
+use crate::trivia::{fn_lookup, iface_lookup};
 use crate::wit_imports::{FuncKind, WitInterface, classify, find_resource, root_bindings};
 use crate::{DetHashSet, DetIndexMap, QjsCallContext, coerce_fn};
 
@@ -428,6 +428,12 @@ fn build_async_exports<'js>(
             .interface()
             .map(|interface| iface_lookup(ctx, interface).to_string());
 
+        // A resource member's WIT name is `[method]counter.tick`, which
+        // camel-cases into nothing that exists on the exports object - so
+        // an async resource method used to fail its lookup outright. The
+        // name is classified instead, exactly as the synchronous path in
+        // `interpreter.rs` does. Ported from componentize-qjs #77.
+        let raw_name: &'static str = func.name();
         let fn_name = func_name.clone();
         let iface = iface_name.clone();
 
@@ -436,21 +442,72 @@ fn build_async_exports<'js>(
             coerce_fn(move |ctx: Ctx<'_>, args: Rest<Value<'_>>| {
                 let exports = ctx.user_module().exports(&ctx)?;
 
-                let user_fn: Function = if let Some(ref iface) = iface {
-                    let iface_obj =
-                        require_export_object(&ctx, &exports, iface.as_str(), iface.as_str())?;
-                    require_export(
-                        &ctx,
-                        &iface_obj,
-                        fn_name.as_str(),
-                        &format!("{iface}.{fn_name}"),
-                    )?
+                let scope: rquickjs::Object = if let Some(ref iface) = iface {
+                    require_export_object(&ctx, &exports, iface.as_str(), iface.as_str())?
                 } else {
-                    require_export(&ctx, &exports, fn_name.as_str(), fn_name.as_str())?
+                    exports.clone()
                 };
 
-                let mut js_args = function::Args::new(ctx.clone(), args.0.len());
-                for arg in args.0 {
+                let mut values = args.0;
+                let (user_fn, this): (Function<'_>, Option<Value<'_>>) = match classify(raw_name) {
+                    FuncKind::Freestanding => {
+                        let named = match iface {
+                            Some(ref iface) => format!("{iface}.{fn_name}"),
+                            None => fn_name.clone(),
+                        };
+                        (
+                            require_export(&ctx, &scope, fn_name.as_str(), &named)?,
+                            None,
+                        )
+                    }
+                    FuncKind::Constructor { .. } => {
+                        // There is nothing to return a Promise to: the
+                        // canonical ABI hands back the resource handle
+                        // itself, not a future of one.
+                        return Err(rquickjs::Exception::throw_type(
+                            &ctx,
+                            "resource constructors cannot be async",
+                        ));
+                    }
+                    FuncKind::Method { method, .. } => {
+                        if values.is_empty() {
+                            return Err(rquickjs::Exception::throw_type(
+                                &ctx,
+                                "async resource method receiver is missing",
+                            ));
+                        }
+                        // The receiver is the FIRST lowered argument - the
+                        // same shape the synchronous path shifts off.
+                        let receiver = values.remove(0);
+                        let receiver_obj = receiver.as_object().cloned().ok_or_else(|| {
+                            rquickjs::Exception::throw_type(
+                                &ctx,
+                                "async resource method receiver is not an object",
+                            )
+                        })?;
+                        let method_fn: Function =
+                            require_export(&ctx, &receiver_obj, fn_lookup(&ctx, method), method)?;
+                        (method_fn, Some(receiver))
+                    }
+                    FuncKind::Static { resource, method } => {
+                        let class_name = resource.to_upper_camel_case();
+                        let class: rquickjs::Object = require_export_object(
+                            &ctx,
+                            &scope,
+                            class_name.as_str(),
+                            class_name.as_str(),
+                        )?;
+                        let method_fn: Function =
+                            require_export(&ctx, &class, fn_lookup(&ctx, method), method)?;
+                        (method_fn, Some(class.into_value()))
+                    }
+                };
+
+                let mut js_args = function::Args::new(ctx.clone(), values.len());
+                if let Some(this) = this {
+                    js_args.this(this)?;
+                }
+                for arg in values {
                     js_args.push_arg(arg)?;
                 }
                 let result = user_fn.call_arg::<Value>(js_args)?;
