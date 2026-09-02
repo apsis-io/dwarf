@@ -113,12 +113,7 @@ pub async fn componentize(opts: ComponentizeOpts) -> Result<ComponentizeResult> 
     };
     let runtime = match custom_runtime.as_deref() {
         Some(wasm) => dwarf_core::Runtime::Custom(wasm),
-        None => match (sync, opt_size) {
-            (true, true) => dwarf_core::Runtime::OptSizeSync,
-            (true, false) => dwarf_core::Runtime::DefaultSync,
-            (false, true) => dwarf_core::Runtime::OptSize,
-            (false, false) => dwarf_core::Runtime::default(),
-        },
+        None => dwarf_core::Runtime::builtin(sync, opt_size),
     };
 
     let polyfills: Vec<&str> = opts

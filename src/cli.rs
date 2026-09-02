@@ -134,14 +134,15 @@ pub async fn run(args: Vec<String>) -> Result<()> {
     println!("  Source: {}", args.file.display());
     println!("  Output: {}", args.output.display());
 
-    let runtime = match &args.runtime {
-        Some(file) => Runtime::Custom(&fs::read(file)?),
-        None => match (args.sync, args.opt_size) {
-            (true, true) => Runtime::OptSizeSync,
-            (true, false) => Runtime::DefaultSync,
-            (false, true) => Runtime::OptSize,
-            (false, false) => Runtime::default(),
-        },
+    let custom_runtime = args
+        .runtime
+        .as_ref()
+        .map(|file| fs::read(file).context("failed to read runtime file"))
+        .transpose()?;
+
+    let runtime = match custom_runtime.as_deref() {
+        Some(wasm) => Runtime::Custom(wasm),
+        None => Runtime::builtin(args.sync, args.opt_size),
     };
 
     if args.stub_wasi {

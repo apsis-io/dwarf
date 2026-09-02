@@ -17,6 +17,7 @@ pub fn generate_shim(
     ctx.output()
 }
 
+/// Deterministic line-oriented emitter for the runtime's `globalThis.wit` API.
 struct EmitContext<'a> {
     resolve: &'a Resolve,
     /// Still carried alongside `metadata`: the upstream change that

@@ -715,3 +715,30 @@ fn test_cli_emit_types_fetch_classes_includes_fetch_p3() {
         "declare function fetchP3(input: string | Request, init?: RequestInit): Promise<Response>;"
     ));
 }
+
+#[test]
+fn test_cli_minify_reports_parse_errors() {
+    // Adapted from componentize-qjs #70, which found the same thing dwarf
+    // did: the minifier used to accept whatever partial AST oxc returned
+    // after a parse error, and emit a program missing its exports.
+    let dir = TempDir::new().unwrap();
+    let wit_path = dir.path().join("test.wit");
+    let js_path = dir.path().join("test.js");
+
+    fs::write(
+        &wit_path,
+        "package test:minify-error;\nworld minify-error { export run: func(); }",
+    )
+    .unwrap();
+    fs::write(&js_path, "export function run( {").unwrap();
+
+    dwarf_cmd()
+        .arg("--wit")
+        .arg(&wit_path)
+        .arg("--file")
+        .arg(&js_path)
+        .arg("--minify")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--minify"));
+}

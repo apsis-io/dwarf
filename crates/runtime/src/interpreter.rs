@@ -2,18 +2,19 @@
 use crate::CtxExt;
 use crate::abi::{CallbackCode, Event};
 use crate::bindings::register;
-use crate::resources::ResourceTable;
+use crate::resources::{ResourceClasses, ResourceTable};
 use crate::result::ResultBoundary;
 use crate::task::TaskState;
 use crate::trivia::{fn_lookup, iface_lookup};
+use crate::wit_imports::{FuncKind, WitImportRegistry, classify};
 use crate::{QjsCallContext, with_ctx};
 use crate::{abi, futures, streams};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use heck::ToUpperCamelCase;
-use rquickjs::function::Constructor;
-use rquickjs::{JsLifetime, Value};
+use rquickjs::function::{Args, Constructor};
+use rquickjs::{Ctx, Function, JsLifetime, Object, Value};
 use wit_dylib_ffi::{ExportFunction, Interpreter, Resource, Wit};
 
 /// Push a SYNC export's return value, refusing a Promise by name.
@@ -110,6 +111,39 @@ fn describe_call_error<'js>(ctx: &rquickjs::Ctx<'js>, err: rquickjs::Error) -> S
 /// quickjs interpreter implementation of the `Interpreter` trait.
 pub struct QjsInterpreter;
 
+/// Select the root or interface-scoped namespace for an exported function.
+fn export_scope<'js>(ctx: &Ctx<'js>, interface: Option<&'static str>) -> Object<'js> {
+    let exports = ctx
+        .user_module()
+        .exports(ctx)
+        .expect("user module exports not found");
+
+    match interface {
+        Some(interface) => exports
+            .get(iface_lookup(ctx, interface))
+            .unwrap_or_else(|err| panic!("interface '{interface}' not found: {err:?}")),
+        None => exports,
+    }
+}
+
+/// Call a JavaScript export and lower its return/throw through the WIT boundary.
+fn call_export<'js>(
+    ctx: &Ctx<'js>,
+    func: ExportFunction,
+    name: &str,
+    js_func: Function<'js>,
+    args: Args<'js>,
+    cx: &mut QjsCallContext,
+) {
+    let value = ResultBoundary::new(func.result())
+        .lower_call(ctx, js_func.call_arg::<Value>(args))
+        .unwrap_or_else(|err| panic!("Failed to call '{name}': {err:?}"));
+
+    if let Some(value) = value {
+        cx.push_value(ctx, value);
+    }
+}
+
 impl Interpreter for QjsInterpreter {
     type CallCx<'a> = QjsCallContext;
 
@@ -119,10 +153,12 @@ impl Interpreter for QjsInterpreter {
                 .expect("Failed to store WIT userdata");
             ctx.store_userdata(ResourceTable::default())
                 .expect("Failed to store ResourceTable userdata");
-            ctx.store_userdata(crate::resources::ResourceClasses::default())
+            ctx.store_userdata(ResourceClasses::default())
                 .expect("Failed to store ResourceClasses userdata");
             ctx.store_userdata(TaskState::new())
                 .expect("Failed to store TaskState userdata");
+            ctx.store_userdata(WitImportRegistry::new(wit))
+                .expect("Failed to store WIT import registry");
             register(ctx, wit).expect("Failed to register WIT bindings");
         });
     }
@@ -183,8 +219,7 @@ impl Interpreter for QjsInterpreter {
                 let self_obj = self_val
                     .as_object()
                     .unwrap_or_else(|| panic!("method receiver is not an object"));
-
-                let method: rquickjs::Function = self_obj
+                let method: Function = self_obj
                     .get(method_name)
                     .unwrap_or_else(|e| panic!("method '{}' not found: {}", method_name, e));
 
