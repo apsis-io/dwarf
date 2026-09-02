@@ -315,14 +315,15 @@ generated files to match its actual runtime before writing them out:
 |---|---|---|
 | `u64`/`s64` | `bigint` | `number` |
 | `option<T>` | `T \| undefined`, or an omittable `field?: T` | `T \| null` — always present, `null` for none |
-| `stream<T>` | `AsyncIterable<T>` | `StreamReadable<T>` — `await s.read(n)`, not `for await` |
+| `stream<T>` | `AsyncIterable<T>` | `StreamReadable<T>` — async-iterable AND `await s.read(n)`; the emitted interface extends `AsyncIterable`, and a stream parameter also accepts a plain one |
 | `future<T>` | `PromiseLike<T>` | `FutureReadable<T>` — `await f.read()`, not `await f` |
 | `async func` | `Promise<T>` | `Promise<T>`, a real one — left alone |
 
-The last two matter most, because their failure mode is code that
-typechecks and silently does nothing: iterating an `AsyncIterable` that
-isn't one, or `await`ing a future that is not a thenable, so the wait never
-happens. `PromiseLike` versus `Promise` is exactly how a `future<T>` return
+The future row matters most, because its failure mode is code that
+typechecks and silently does nothing: `await`ing a future that is not a
+thenable, so the wait never happens. (Streams used to be in the same
+position; they are genuinely async-iterable now, so the generated shape is
+widened rather than replaced.) `PromiseLike` versus `Promise` is exactly how a `future<T>` return
 is told apart from a genuinely `async func` — the same position, different
 type.
 
@@ -1021,36 +1022,50 @@ export async function greet(name) {
 
 ### Streams
 
-Streams transfer a sequence of values between components.
-The `wit` global provides `Stream` and `Future` constructors for creating
-stream/future pairs. The type is automatically determined from the WIT definition:
+Streams transfer a sequence of values between components. Lifted WIT streams
+implement the JavaScript async-iterable protocol, and async or synchronous
+iterables are lowered to WIT streams automatically. The stream type is inferred
+from the function parameter or result:
 
 ```wit
 package example:streaming;
 
 world streaming {
-    export produce: async func() -> stream<u8>;
+    export uppercase: async func(input: stream<string>) -> stream<string>;
 }
 ```
 
 ```js
-async function produce() {
-    // When only one stream type exists in the WIT, no argument needed
-    const { readable, writable } = wit.Stream();
-
-    writable.write(new Uint8Array([1, 2, 3]));
-    writable.drop();
-
-    return readable;
+export async function uppercase(input) {
+    return (async function* () {
+        for await (const value of input) {
+            yield value.toUpperCase();
+        }
+    })();
 }
 ```
 
-When the WIT defines multiple stream types, use the type constant:
+Async iteration yields one element at a time, except for `stream<u8>`, which
+yields bounded `Uint8Array` chunks to avoid one promise per byte.
+
+Use the `wit.Stream` factory when direct access to both endpoints is needed. If
+only one stream type exists in the WIT world, the type may be omitted:
 
 ```js
-// wit.Stream.U8, wit.Stream.STRING, wit.Stream.U32, etc.
 const { readable, writable } = wit.Stream(wit.Stream.U8);
-const { readable, writable } = wit.Stream(wit.Stream.STRING);
+await writable.writeAll(new Uint8Array([1, 2, 3]));
+writable.drop();
+```
+
+`wit.Stream.from` adapts an iterable explicitly and exposes a completion
+promise:
+
+```js
+const source = (async function* () {
+    yield "one";
+    yield "two";
+})();
+const { readable, completion } = wit.Stream.from(source, wit.Stream.STRING);
 ```
 
 Available type constants (populated from WIT metadata):
@@ -1083,6 +1098,16 @@ wit.Stream(wit.Stream.TUPLE_U32_STRING);
 wit.Stream(wit.Stream.POINT);
 ```
 
+Explicit WIT stream aliases are also exposed as constants:
+
+```wit
+type prompt-stream = stream<message-chunk>;
+```
+
+```js
+wit.Stream(wit.Stream.PROMPT_STREAM);
+```
+
 Use `wit.Stream.types` or `wit.Future.types` to discover all available type
 constants at runtime.
 
@@ -1091,8 +1116,11 @@ constants at runtime.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `read(count?)` | `Promise<T[]>` (or `Uint8Array` for `u8`) | Read up to `count` values |
+| `next()` | `Promise<IteratorResult<T>>` | Read the next value (`Uint8Array` chunk for `u8`) |
+| `return()` | `Promise<IteratorResult<T>>` | End iteration and release the readable handle |
 | `cancelRead()` | result or `undefined` | Cancel an in-progress read |
 | `drop()` | `void` | Release the stream handle |
+| `[Symbol.asyncIterator]()` | `StreamReadable` | Consume the stream with `for await...of` |
 
 **Calling `read()` again after the writable end has dropped and all data is
 already consumed is not a catchable JS error** — confirmed empirically, it's
@@ -1108,7 +1136,9 @@ polyfill's WASI bridge both use).
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `write(data)` | `Promise<number>` | Write values, returns count written |
+| `writeOne(value)` | `Promise<number>` | Write exactly one value, including array-shaped WIT values |
 | `writeAll(data)` | `Promise<number>` | Write all values, retrying as needed |
+| `writeIterableItem(value)` | `Promise<boolean>` | Write one iterable yield, batching matching numeric typed arrays |
 | `cancelWrite()` | result or `undefined` | Cancel an in-progress write |
 | `drop()` | `void` | Release the stream handle |
 

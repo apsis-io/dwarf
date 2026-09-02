@@ -169,11 +169,12 @@ pub async fn componentize_with(
         scriptc_parts.push(part);
     }
     let resolve = resolve;
-
-    let mut shim = codegen::generate_shim(&resolve, world_id);
-    shim.push_str(&polyfills::resolve_shim_suffix(opts.polyfills)?);
     let resolver = module_resolution(opts)?;
-    let mut wit_dylib = wit_dylib::create(&resolve, world_id, None);
+    let (mut wit_dylib, wit_metadata) = wit_dylib::create_with_metadata(&resolve, world_id, None);
+    // The shim is generated from the metadata now, not the world id, and so
+    // must follow it; dwarf's polyfill suffix still appends to it.
+    let mut shim = codegen::generate_shim(&resolve, world_id, &wit_metadata);
+    shim.push_str(&polyfills::resolve_shim_suffix(opts.polyfills)?);
 
     // wit_dylib is freshly generated per WIT world (unlike the vendored QuickJS
     // runtime, which is a fixed blob wasm-opt barely touches - see

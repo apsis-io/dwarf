@@ -86,9 +86,12 @@ pub fn emit_ts_types(
 /// - A `stream<T>` value is typed `AsyncIterable<T>` (older jco:
 ///   `ReadableStream<T>`), but dwarf's runtime hands back its own
 ///   `StreamReadable<T>` wrapper (`read(count?)`, `cancelRead()`, `drop()`).
-///   Neither generated shape is usable: `for await (const b of stream)`
-///   typechecks against `AsyncIterable` and does nothing at run time, where
-///   `await stream.read(256)` is what works.
+///   Since componentize-qjs #69 that wrapper IS also async-iterable, so the
+///   emitted interface extends `AsyncIterable` rather than replacing it -
+///   `for await` and `read(n)` are both real, and a declaration naming only
+///   one of them is only half the object. In parameter position a plain
+///   async iterable is accepted as well, since dwarf lowers a generator
+///   straight to a stream.
 /// - A `future<T>` value is typed `PromiseLike<T>`, but dwarf's runtime hands
 ///   back its own `FutureReadable<T>` wrapper (`read()`, `cancelRead()`,
 ///   `drop()`) - not a thenable. `await`ing one directly typechecks and never
@@ -166,12 +169,22 @@ static ASYNC_ITERABLE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"AsyncIterable<({BALANCED_GENERIC_BODY})>")).unwrap());
 /// Current jco's spelling for a `future<T>` VALUE, as distinct from the
 /// `Promise<T>` it emits for a genuinely `async func`.
+/// Matches an already-rewritten stream, for widening it in parameters.
+static STREAM_READABLE_PARAM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(r"StreamReadable<({BALANCED_GENERIC_BODY})>")).unwrap()
+});
 static PROMISE_LIKE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"PromiseLike<({BALANCED_GENERIC_BODY})>")).unwrap());
 static TUPLE_TYPE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[([^\[\]]*)\]").unwrap());
 static PARAM_LIST_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\(([^()]*)\)").unwrap());
 
-const STREAM_READABLE_IFACE: &str = "interface StreamReadable<T> {\n  read(count?: number): Promise<T extends number ? Uint8Array : T[]>;\n  cancelRead(): void | { progress: number; result: number };\n  drop(): void;\n}\n";
+/// Extends `AsyncIterable`, because a lifted stream genuinely is one:
+/// `for await (const chunk of stream)` works alongside `read(n)`. That is
+/// what jco's `AsyncIterable<T>` was reaching for and, before dwarf took
+/// componentize-qjs #69, got wrong - the object had no iterator at all.
+/// `stream<u8>` yields bounded `Uint8Array` chunks rather than one promise
+/// per byte, which is why the element type is conditional.
+const STREAM_READABLE_IFACE: &str = "interface StreamReadable<T> extends AsyncIterable<T extends number ? Uint8Array : T> {\n  read(count?: number): Promise<T extends number ? Uint8Array : T[]>;\n  cancelRead(): void | { progress: number; result: number };\n  drop(): void;\n}\n";
 const FUTURE_READABLE_IFACE: &str = "interface FutureReadable<T> {\n  read(): Promise<T>;\n  cancelRead(): void | number;\n  drop(): void;\n}\n";
 
 fn wrap_futures_in(text: &str) -> String {
@@ -209,6 +222,17 @@ fn patch_ts_source(src: &str) -> String {
     // just as receiving one does - so this needs no position analysis.
     let src = ASYNC_ITERABLE_RE
         .replace_all(&src, "StreamReadable<$1>")
+        .into_owned();
+    // In PARAMETER position an ordinary async iterable is accepted too -
+    // dwarf lowers a generator straight to a stream - so requiring the
+    // wrapper there would reject code that works.
+    let src = PARAM_LIST_RE
+        .replace_all(&src, |caps: &regex::Captures| {
+            format!(
+                "({})",
+                STREAM_READABLE_PARAM_RE.replace_all(&caps[1], "StreamReadable<$1> | AsyncIterable<$1>")
+            )
+        })
         .into_owned();
     // Current jco's future spelling, and the reason a top-level return no
     // longer has to be left alone: `PromiseLike<T>` is a `future<T>` value,
@@ -251,12 +275,21 @@ export function maybe(n: bigint | undefined): bigint | undefined;
         let patched = patch_ts_source(JCO_OUTPUT);
 
         assert!(
-            !patched.contains("AsyncIterable"),
-            "jco's stream spelling should be gone: {patched}"
+            patched.contains("makeStream(): StreamReadable<number>"),
+            "a returned stream is the wrapper: {patched}"
         );
-        assert!(patched.contains("makeStream(): StreamReadable<number>"));
-        assert!(patched.contains("takeStream(s: StreamReadable<number>)"));
-        assert!(patched.contains("interface StreamReadable<T>"));
+        // Not merely the wrapper: it is async-iterable too, so a
+        // declaration must admit both. `for await` really works.
+        assert!(
+            patched.contains("interface StreamReadable<T> extends AsyncIterable<"),
+            "the wrapper must extend AsyncIterable: {patched}"
+        );
+        // A parameter accepts a bare generator, which lowering turns into a
+        // stream, so it must not be narrowed to the wrapper alone.
+        assert!(
+            patched.contains("takeStream(s: StreamReadable<number> | AsyncIterable<number>)"),
+            "a stream parameter should accept any async iterable: {patched}"
+        );
     }
 
     #[test]
