@@ -22,7 +22,13 @@ fn display_path(path: &Path) -> String {
 #[command(about = "Convert TypeScript/JavaScript to WebAssembly components using QuickJS")]
 pub struct CliArgs {
     /// Path to the WIT file or directory
-    #[arg(short, long)]
+    ///
+    /// A DIRECTORY is also written to: if a referenced package is missing
+    /// (e.g. `wasi:cli`), dwarf fetches it with `wkg fetch` and vendors it
+    /// into `<dir>/deps/`. Pass --no-vendor to keep the directory
+    /// untouched. A single `.wit` file is never written to - it has no
+    /// `deps/` to populate, so a missing package is an error there instead.
+    #[arg(short, long, value_name = "PATH")]
     pub wit: std::path::PathBuf,
 
     /// Path to the entry module: TypeScript (`.ts`/`.mts`/`.cts`, types
@@ -45,7 +51,9 @@ pub struct CliArgs {
     pub module_root: Option<std::path::PathBuf>,
 
     /// Output path for the component
-    #[arg(short, long, default_value = "output.wasm")]
+    ///
+    /// Its directory is created if it does not exist.
+    #[arg(short, long, value_name = "PATH", default_value = "output.wasm")]
     pub output: std::path::PathBuf,
 
     /// World name to use from the WIT
