@@ -428,6 +428,26 @@ impl AsyncComponentInstance {
             // websocket.rs, sockprobe in async_resource.rs) - without this,
             // wasmtime-wasi's wasi:sockets host implementation denies every
             // socket operation by default.
+            //
+            // `inherit_network` alone is NOT enough, and the fact that it
+            // looks enough today is the trap. It installs the ADDRESS check
+            // only; whether the guest may create a socket at all is a
+            // separate pair of flags checked in Tcp/UdpSocket::new. Those
+            // default to true in wasmtime-wasi 46 (a hand-written `impl
+            // Default`), and to FALSE in 48, where the impl became a
+            // `#[derive(Default)]` - so a bump would make every socket test
+            // here fail at CREATION with `access-denied`, which reads as a
+            // bind-permission problem and is not one. Asking explicitly
+            // costs nothing on 46 and makes that bump a non-event.
+            //
+            // Measured against wasmtime 48.0.1 with a purpose-built probe:
+            // `-S inherit-network,tcp=n,udp=n` fails at create, while
+            // `-S tcp=y,udp=y` without the address grant creates fine and
+            // fails at bind. Two independent gates. (Root cause found by
+            // periapsis's peri-velocity-port; the trail runtime hit it
+            // first.)
+            .allow_tcp(true)
+            .allow_udp(true)
             .inherit_network();
         let wasi = wasi_builder.build();
         let table = ResourceTable::new();
