@@ -19,6 +19,10 @@ fn display_path(path: &Path) -> String {
 
 #[derive(Parser)]
 #[command(name = "dwarf")]
+// From CARGO_PKG_VERSION rather than a git description: dwarf's builds are
+// reproducible, and embedding the working tree's sha would make the binary
+// depend on repository state rather than on its inputs.
+#[command(version)]
 #[command(about = "Convert TypeScript/JavaScript to WebAssembly components using QuickJS")]
 pub struct CliArgs {
     /// Path to the WIT file or directory

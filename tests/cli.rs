@@ -26,6 +26,20 @@ fn test_cli_help() {
 }
 
 #[test]
+fn test_cli_version() {
+    // Asserted against the crate version rather than a literal, so a
+    // release bump cannot leave this test passing while --version lies.
+    let expected = format!("dwarf {}", env!("CARGO_PKG_VERSION"));
+    for flag in ["--version", "-V"] {
+        dwarf_cmd()
+            .arg(flag)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(expected.as_str()));
+    }
+}
+
+#[test]
 fn test_cli_errors() {
     dwarf_cmd()
         .arg("--wit")
