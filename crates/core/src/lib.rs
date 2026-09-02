@@ -70,7 +70,7 @@ pub struct ComponentizeOpts<'a> {
     pub world_name: Option<&'a str>,
     /// Stub all WASI imports with traps
     pub stub_wasi: bool,
-    /// Automatically fetch missing WIT dependencies with `wkg wit fetch` when
+    /// Automatically fetch missing WIT dependencies with `wkg fetch` when
     /// `wit_path` is a directory and resolution fails on an unresolved package
     pub auto_vendor: bool,
     /// Names of static (non-WASI) polyfills to include, e.g. `["buffer"]` -

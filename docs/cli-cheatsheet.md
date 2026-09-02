@@ -25,7 +25,7 @@ wasmtime run --wasm component-model-async=y --invoke 'greet("World")' hello.wasm
 | `--output` | `-o` | path | `output.wasm` | Output component path |
 | `--world` | `-n` | name | (auto-detect) | World name, if the WIT defines more than one |
 | `--module-root` | | path | entry's dir | Root exposed read-only during Wizer for resolving JS `import`s (relative/bare specifiers, `node_modules`) |
-| `--no-vendor` | | | off | Disable auto-fetching missing WIT deps via `wkg wit fetch` (dir `--wit` only) |
+| `--no-vendor` | | | off | Disable auto-fetching missing WIT deps via `wkg fetch` (dir `--wit` only) |
 | `--stub-wasi` | | | off | Replace all WASI imports with trap stubs (no host capabilities) |
 | `--polyfill` | | name | *(repeatable)* | Include a static polyfill — see [Polyfills](#polyfills) |
 | `--emit-types` | | dir | | Also emit `.d.ts` for the WIT world + polyfills via `jco types` |

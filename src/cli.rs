@@ -56,7 +56,7 @@ pub struct CliArgs {
     #[arg(long)]
     pub stub_wasi: bool,
 
-    /// Disable automatically fetching missing WIT dependencies via `wkg wit fetch`
+    /// Disable automatically fetching missing WIT dependencies via `wkg fetch`
     #[arg(long)]
     pub no_vendor: bool,
 

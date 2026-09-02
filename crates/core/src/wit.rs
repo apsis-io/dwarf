@@ -1,5 +1,5 @@
 //! Resolves a WIT path, automatically fetching missing dependencies with
-//! `wkg wit fetch` (<https://github.com/bytecodealliance/wasm-pkg-tools>) when
+//! `wkg fetch` (<https://github.com/bytecodealliance/wasm-pkg-tools>) when
 //! resolution fails because a referenced package isn't vendored under
 //! `deps/` yet.
 
@@ -13,7 +13,7 @@ use wit_parser::{PackageId, PackageName, Resolve, ResolveError, ResolveErrorKind
 const INSTALL_HINT: &str = "install it with `cargo install wkg` (see https://github.com/bytecodealliance/wasm-pkg-tools), \
      or vendor the missing package(s) manually under a `deps/` directory next to your WIT";
 
-/// Parses the WIT package at `path`, retrying once via `wkg wit fetch` if the
+/// Parses the WIT package at `path`, retrying once via `wkg fetch` if the
 /// first parse fails because of an unresolved package and `auto_vendor` is
 /// enabled. `path` must be a directory for vendoring to apply, since a single
 /// standalone WIT file has no `deps/` directory for `wkg` to populate.
@@ -41,13 +41,13 @@ pub(crate) fn resolve_wit(path: &Path, auto_vendor: bool) -> Result<(Resolve, Pa
     }
 
     eprintln!(
-        "WIT package `{missing}` not found under {}/deps - fetching it with `wkg wit fetch`...",
+        "WIT package `{missing}` not found under {}/deps - fetching it with `wkg fetch`...",
         path.display()
     );
     match fetch_deps(path) {
         Ok(()) => parse_wit(path).with_context(|| {
             format!(
-                "still failed to resolve WIT after running `wkg wit fetch` under {}",
+                "still failed to resolve WIT after running `wkg fetch` under {}",
                 path.display()
             )
         }),
@@ -119,61 +119,81 @@ fn annotate_syntax_hint(err: anyhow::Error) -> anyhow::Error {
     }
 }
 
-/// Runs `wkg wit fetch` for `wit_dir`.
+/// Fetches `wit_dir`'s missing dependencies into `wit_dir/deps`.
 ///
-/// The directory is POSITIONAL (`wkg wit fetch <DIR>`) as of wkg 0.16;
-/// earlier releases spelled it `--wit-dir`, which is what dwarf used to
-/// pass unconditionally. Against a current wkg that failed with
-/// "unexpected argument '--wit-dir' found" - a message about dwarf's own
-/// command line, surfaced to someone who had merely asked for a WIT
-/// dependency, with nothing to act on. Both spellings are tried now, the
-/// current one first, so neither a fresh install nor a pinned older one
-/// breaks.
+/// wkg's CLI has moved twice. `wkg fetch <DIR>` is the current spelling;
+/// `wkg wit fetch <DIR>` still works in 0.16 but is deprecated ("`wkg wit
+/// <command>` is deprecated, use `wkg <command>` instead"); and the
+/// `--wit-dir <DIR>` flag older releases took has been removed outright.
+/// dwarf passed that removed flag unconditionally until today, so
+/// vendoring failed against every current wkg with "unexpected argument
+/// '--wit-dir' found" - a complaint about dwarf's own command line, shown
+/// to someone who had merely asked for a WIT dependency.
+///
+/// All three are tried, newest first, so neither a fresh install nor a
+/// pinned old one breaks, and the deprecation becoming a removal costs
+/// nothing here.
 fn fetch_deps(wit_dir: &Path) -> Result<()> {
-    let current = run_wkg_fetch(&[OsStr::new(wit_dir)])?;
-    if current.status.success() {
-        return Ok(());
+    let dir = wit_dir.as_os_str();
+
+    // Newest spelling first, oldest last. `wkg wit fetch` still works in
+    // 0.16 but prints a deprecation warning, and `--wit-dir` was already
+    // removed - dwarf passed it unconditionally until today, which is how
+    // vendoring came to be broken against every current wkg. Trying the
+    // current form first means the deprecation becoming a removal is a
+    // no-op here rather than the same outage again.
+    let spellings: [&[&OsStr]; 3] = [
+        &[OsStr::new("fetch"), dir],
+        &[OsStr::new("wit"), OsStr::new("fetch"), dir],
+        &[
+            OsStr::new("wit"),
+            OsStr::new("fetch"),
+            OsStr::new("--wit-dir"),
+            dir,
+        ],
+    ];
+
+    let mut first_failure = None;
+    for args in spellings {
+        let output = run_wkg(args)?;
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        // Only an argument-parsing rejection means "try the other
+        // spelling". A fetch that reached a registry and failed must stop
+        // here, or every spelling fails in turn and the last one's message
+        // blames the flag for a network problem.
+        if !is_cli_usage_error(&stderr) {
+            return Err(anyhow!(
+                "`wkg` exited with {}: {}",
+                output.status,
+                stderr.trim()
+            ));
+        }
+        first_failure.get_or_insert((output.status, stderr));
     }
 
-    let stderr = String::from_utf8_lossy(&current.stderr).into_owned();
-    if !is_cli_usage_error(&stderr) {
-        return Err(anyhow!(
-            "`wkg wit fetch` exited with {}: {}",
-            current.status,
-            stderr.trim()
-        ));
-    }
-
-    let legacy = run_wkg_fetch(&[OsStr::new("--wit-dir"), OsStr::new(wit_dir)])?;
-    if legacy.status.success() {
-        return Ok(());
-    }
-
-    // Neither spelling was accepted: report the CURRENT one's error, since
-    // that is the CLI dwarf targets, and say the version is the suspect
-    // rather than leaving a raw argument-parsing message to be puzzled over.
+    let (status, stderr) = first_failure.expect("at least one spelling is always tried");
     Err(anyhow!(
-        "`wkg wit fetch` exited with {}: {}\n\
-         (dwarf tried both `wkg wit fetch <dir>` and the older `--wit-dir <dir>`; \
-         neither was accepted, which usually means an incompatible `wkg` - \
-         `cargo install wkg` to update, or pass --no-vendor and vendor deps by hand)",
-        current.status,
+        "`wkg` exited with {}: {}\n\
+         (dwarf tried `wkg fetch <dir>`, `wkg wit fetch <dir>` and the older \
+         `--wit-dir <dir>`; none was accepted, which usually means an \
+         incompatible `wkg` - `cargo install wkg` to update, or pass \
+         --no-vendor and vendor deps by hand)",
+        status,
         stderr.trim()
     ))
 }
 
-fn run_wkg_fetch(dir_args: &[&OsStr]) -> Result<std::process::Output> {
-    match Command::new("wkg")
-        .arg("wit")
-        .arg("fetch")
-        .args(dir_args)
-        .output()
-    {
+fn run_wkg(args: &[&OsStr]) -> Result<std::process::Output> {
+    match Command::new("wkg").args(args).output() {
         Ok(output) => Ok(output),
         Err(io_err) if io_err.kind() == std::io::ErrorKind::NotFound => {
             Err(anyhow!("`wkg` is not installed"))
         }
-        Err(io_err) => Err(anyhow!("failed to run `wkg wit fetch`: {io_err}")),
+        Err(io_err) => Err(anyhow!("failed to run `wkg`: {io_err}")),
     }
 }
 
@@ -192,6 +212,16 @@ fn is_cli_usage_error(stderr: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::is_cli_usage_error;
+
+    #[test]
+    fn the_deprecated_subcommand_is_also_a_usage_error() {
+        // If a future wkg removes `wkg wit <command>` outright, the message
+        // must still read as "try the next spelling" rather than as a real
+        // fetch failure.
+        assert!(is_cli_usage_error(
+            "error: unrecognized subcommand 'wit'\n\nUsage: wkg <COMMAND>"
+        ));
+    }
 
     #[test]
     fn a_rejected_flag_is_a_usage_error() {

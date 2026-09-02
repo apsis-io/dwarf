@@ -278,7 +278,7 @@ dwarf [OPTIONS] --wit <WIT> --file <JS>
 | `--module-root <PATH>` | | Root directory exposed read-only during Wizer for resolving JavaScript imports |
 | `--world <NAME>` | `-n` | World name when the WIT defines multiple worlds |
 | `--stub-wasi` | | Replace all WASI imports with trap stubs |
-| `--no-vendor` | | Disable automatically fetching missing WIT dependencies via `wkg wit fetch` |
+| `--no-vendor` | | Disable automatically fetching missing WIT dependencies via `wkg fetch` |
 | `--emit-types <DIR>` | | Also generate TypeScript type declarations for the WIT world via `jco types` |
 | `--polyfill <NAME>` | | Include a static polyfill (repeatable), e.g. `--polyfill buffer` — see [Polyfills](#polyfills) |
 | `--minify` | `-m` | Minify JS source before embedding |
@@ -594,7 +594,7 @@ configure.
 
 When `--wit` points at a directory, referenced packages (e.g. `wasi:cli`)
 are normally vendored under a `deps/` subdirectory next to your WIT files. If
-a package is missing, dwarf automatically runs `wkg wit fetch` to fetch it
+a package is missing, dwarf automatically runs `wkg fetch` to fetch it
 (requires [`wkg`](#prerequisites) on `PATH`) and retries — no manual `deps/`
 setup needed for a quick start. Disable this with `--no-vendor`; auto-vendoring
 only applies to directory `--wit` paths, since a single standalone WIT file has
