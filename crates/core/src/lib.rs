@@ -484,7 +484,8 @@ async fn wizer_init(
 
     let component = wizer
         .snapshot_component(
-            cx,
+            // wizer 48 takes the context by reference.
+            &cx,
             &mut WasmtimeWizerComponent {
                 store: &mut store,
                 instance,
@@ -551,6 +552,9 @@ fn define_unknown_imports_as_traps_async(
 
     let mut root = linker.root();
     for (name, ext) in imports {
+        if wasmtime_wasi_provides(name) {
+            continue;
+        }
         stub_item(&mut root, engine, name, &ext.ty, None, &known_resources)?;
     }
     Ok(())
@@ -619,6 +623,41 @@ fn collect_known_wasi_io_resources(
         }
         _ => {}
     }
+}
+
+/// Whether `wasmtime_wasi`'s own `add_to_linker` calls will define this
+/// import, in which case stubbing it first is not merely redundant but
+/// harmful.
+///
+/// The stub gives a resource a generic `ResourceType::host::<()>()`
+/// identity. When the real implementation is added afterwards it shadows
+/// the FUNCTIONS, but an interface that `use`s a resource from another
+/// interface (`wasi:cli/terminal-stdin` uses `terminal-input`, and
+/// `wasi:filesystem/preopens` uses `descriptor`) then holds the stub's
+/// identity on one side and the real one on the other, and instantiation
+/// fails with "mismatched resource types". dwarf already carries that
+/// story for `wasi:io`'s resources, where it fixes the identity by hand -
+/// but it can only do that for types wasmtime-wasi exports publicly, and
+/// `TerminalInput` and friends live in a private module. Not stubbing them
+/// at all is both simpler and more correct: nothing is missing to trap on.
+///
+/// Under wasmtime 46 this was latent - the shadowing happened to produce a
+/// consistent identity - and 48 surfaced it as a hard instantiation
+/// failure for EVERY build, not only ones touching sockets or terminals.
+///
+/// Interfaces wasmtime-wasi does NOT provide (notably `wasi:http`, and any
+/// world-specific import) still get stubbed, which is what this function
+/// exists to keep working.
+fn wasmtime_wasi_provides(name: &str) -> bool {
+    const PROVIDED: [&str; 6] = [
+        "wasi:cli/",
+        "wasi:clocks/",
+        "wasi:filesystem/",
+        "wasi:io/",
+        "wasi:random/",
+        "wasi:sockets/",
+    ];
+    PROVIDED.iter().any(|prefix| name.starts_with(prefix))
 }
 
 fn stub_item<T: Send + 'static>(
