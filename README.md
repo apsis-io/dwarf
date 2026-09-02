@@ -273,7 +273,7 @@ dwarf [OPTIONS] --wit <WIT> --file <JS>
 | Flag | Short | Description |
 |---|---|---|
 | `--wit <PATH>` | `-w` | Path to the WIT file or directory |
-| `--file <PATH>` | `-j` | Path to the JavaScript source file |
+| `--file <PATH>` | `-f` | Entry module: TypeScript or JavaScript (`--js`/`-j` still accepted) |
 | `--output <PATH>` | `-o` | Output path (default: `output.wasm`) |
 | `--module-root <PATH>` | | Root directory exposed read-only during Wizer for resolving JavaScript imports |
 | `--world <NAME>` | `-n` | World name when the WIT defines multiple worlds |

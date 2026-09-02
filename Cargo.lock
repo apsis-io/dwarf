@@ -901,6 +901,7 @@ dependencies = [
  "indexmap",
  "oxc_allocator",
  "oxc_codegen",
+ "oxc_minifier",
  "oxc_parser",
  "oxc_resolver",
  "oxc_semantic",

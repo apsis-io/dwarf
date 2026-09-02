@@ -31,6 +31,7 @@ async fn test_concurrent_async_import_calls_overlap() {
         wit_path: &wit_path,
         js_source: include_str!("wit/concurrent/probe.js"),
         js_path: None,
+        minify: false,
         module_root: None,
         world_name: Some("concurrent-probe"),
         stub_wasi: false,

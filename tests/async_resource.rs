@@ -96,6 +96,7 @@ async fn test_async_import_taking_owned_resource_param() {
         wit_path: &wit_path,
         js_source: include_str!("wit/resarg/probe.js"),
         js_path: None,
+        minify: false,
         module_root: None,
         world_name: Some("resarg"),
         stub_wasi: false,

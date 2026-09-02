@@ -1,4 +1,5 @@
 pub mod codegen;
+mod minify;
 pub mod polyfills;
 mod resolver;
 pub mod scriptc;
@@ -55,6 +56,9 @@ pub struct ComponentizeOpts<'a> {
     /// Path to the entry file, used as the base for resolving imports and to
     /// decide whether the source is TypeScript
     pub js_path: Option<&'a Path>,
+    /// Minify the entry module before embedding it. Applied AFTER any
+    /// TypeScript transform, since the minifier only reads JavaScript.
+    pub minify: bool,
     /// Host directory exposed read-only during Wizer for resolving imported modules
     pub module_root: Option<&'a Path>,
     /// World name to use from the WIT (None = default world)
@@ -203,6 +207,14 @@ pub async fn componentize_with(
     let entry_source = match opts.js_path {
         Some(path) => ts::to_javascript(opts.js_source, path)?,
         None => opts.js_source.to_string(),
+    };
+    // Strictly after the transform above: the minifier parses JavaScript,
+    // and handing it TypeScript produced a partial program whose exports
+    // were missing - a component that built and then trapped.
+    let entry_source = if opts.minify {
+        minify::minify_js(&entry_source)?
+    } else {
+        entry_source
     };
 
     let mut component = wizer_init(

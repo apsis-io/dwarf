@@ -81,6 +81,7 @@ async fn test_typed_bindgen_own_then_method_borrow_succeeds() {
             }
         "#,
         js_path: None,
+        minify: false,
         module_root: None,
         world_name: None,
         stub_wasi: false,

@@ -281,6 +281,7 @@ fn test_wasi_http_proxy_resource_aliasing() {
             };
         "#,
         js_path: None,
+        minify: false,
         module_root: None,
         world_name: Some("wasi-http-proxy"),
         stub_wasi: false,

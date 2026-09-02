@@ -37,6 +37,7 @@ async fn test_calling_a_method_on_a_previously_owned_resource_traps() {
             }
         "#,
         js_path: None,
+        minify: false,
         module_root: None,
         world_name: None,
         stub_wasi: false,

@@ -62,6 +62,7 @@ pub struct TestCase {
     world_name: Option<String>,
     script: Option<String>,
     script_name: Option<String>,
+    minify: bool,
     stub_wasi: bool,
     env_vars: Vec<(String, String)>,
     stdin: Option<String>,
@@ -90,6 +91,7 @@ impl TestCase {
             world_name: None,
             script: None,
             script_name: None,
+            minify: false,
             stub_wasi: false,
             scriptc_profiles: Vec::new(),
             env_vars: Vec::new(),
@@ -131,6 +133,12 @@ impl TestCase {
     pub fn script_named(mut self, name: &str, source: &str) -> Self {
         self.script = Some(source.to_string());
         self.script_name = Some(name.to_string());
+        self
+    }
+
+    /// Minify the entry before embedding, as `--minify` does.
+    pub fn minify(mut self) -> Self {
+        self.minify = true;
         self
     }
 
@@ -201,6 +209,7 @@ impl TestCase {
             wit_path: &wit_path,
             js_source: self.script.as_deref().unwrap(),
             js_path: entry_path.as_deref(),
+            minify: self.minify,
             module_root: None,
             world_name: self.world_name.as_deref(),
             stub_wasi: self.stub_wasi,
@@ -251,6 +260,7 @@ impl TestCase {
             wit_path: &wit_path,
             js_source: self.script.as_deref().unwrap(),
             js_path: entry_path.as_deref(),
+            minify: self.minify,
             module_root: None,
             world_name: self.world_name.as_deref(),
             stub_wasi: self.stub_wasi,

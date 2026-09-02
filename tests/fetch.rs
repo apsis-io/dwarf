@@ -30,6 +30,7 @@ fn test_fetch_component_builds_with_wasi_http_client() {
             }
         "#,
         js_path: None,
+        minify: false,
         module_root: None,
         world_name: Some("fetch-test"),
         stub_wasi: false,

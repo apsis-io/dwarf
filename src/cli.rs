@@ -2,14 +2,6 @@ use dwarf_core::{ComponentizeOpts, Runtime, ScriptcConfig, componentize_with};
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use oxc_allocator::Allocator;
-use oxc_codegen::Codegen;
-use oxc_minifier::{
-    CompressOptions, CompressOptionsKeepNames, CompressOptionsUnused, MangleOptions, Minifier,
-    MinifierOptions,
-};
-use oxc_parser::Parser as OxcParser;
-use oxc_span::SourceType;
 
 use std::fs;
 use std::path::Path;
@@ -27,13 +19,14 @@ fn display_path(path: &Path) -> String {
 
 #[derive(Parser)]
 #[command(name = "dwarf")]
-#[command(about = "Convert JavaScript to WebAssembly components using QuickJS")]
+#[command(about = "Convert TypeScript/JavaScript to WebAssembly components using QuickJS")]
 pub struct CliArgs {
     /// Path to the WIT file or directory
     #[arg(short, long)]
     pub wit: std::path::PathBuf,
 
-    /// Path to the source file (JavaScript; compile TypeScript to JS first)
+    /// Path to the entry module: TypeScript (`.ts`/`.mts`/`.cts`, types
+    /// stripped, never checked) or JavaScript
     ///
     /// `--js`/`-j` remain accepted: the flag was renamed because the file it
     /// points at is the build's input, and saying "js" in it made a
@@ -136,32 +129,6 @@ pub async fn run(args: Vec<String>) -> Result<()> {
     let js_source = fs::read_to_string(&args.file)
         .with_context(|| format!("failed to read source file: {}", args.file.display()))?;
 
-    let js_source = if args.minify {
-        let allocator = Allocator::default();
-        let source_type = SourceType::mjs();
-        let ret = OxcParser::new(&allocator, &js_source, source_type).parse();
-        let mut program = ret.program;
-
-        let options = MinifierOptions {
-            mangle: Some(MangleOptions {
-                top_level: Some(false),
-                ..Default::default()
-            }),
-            compress: Some(CompressOptions {
-                unused: CompressOptionsUnused::Keep,
-                keep_names: CompressOptionsKeepNames::all_false(),
-                ..CompressOptions::default()
-            }),
-        };
-        let ret = Minifier::new(options).minify(&allocator, &mut program);
-        Codegen::new()
-            .with_scoping(ret.scoping)
-            .build(&program)
-            .code
-    } else {
-        js_source
-    };
-
     println!("dwarf");
     println!("  WIT:    {}", display_path(&args.wit));
     println!("  Source: {}", args.file.display());
@@ -202,6 +169,7 @@ pub async fn run(args: Vec<String>) -> Result<()> {
             wit_path: &args.wit,
             js_source: &js_source,
             js_path: Some(&args.file),
+            minify: args.minify,
             module_root: args.module_root.as_deref(),
             world_name: args.world.as_deref(),
             stub_wasi: args.stub_wasi,

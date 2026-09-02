@@ -131,6 +131,36 @@ fn a_javascript_entry_may_import_a_typescript_module() {
 }
 
 #[test]
+fn minifying_a_typescript_entry_produces_a_component_that_runs() {
+    // Order of operations, and the worst kind of bug: --minify used to run
+    // before types were stripped, so the minifier parsed TypeScript as
+    // plain JavaScript, discarded the parse errors, and emitted a program
+    // with the exports missing. The build SUCCEEDED and the component
+    // trapped on the first call.
+    let mut case = TestCase::new()
+        .wit(WIT)
+        .minify()
+        .script_named(
+            "app.ts",
+            r#"
+            interface Shape { readonly label: string }
+            function render(s: Shape): string {
+                const parts: string[] = [s.label, "minified"];
+                return parts.join(" ");
+            }
+            export function value(): string { return render({ label: "typed" }); }
+            "#,
+        )
+        .expect_call("value", vec![], Val::String("typed minified".into()))
+        .build()
+        .unwrap();
+
+    // Building is not the assertion - it built before the fix too. Calling
+    // it is.
+    case.run();
+}
+
+#[test]
 fn a_type_error_is_not_dwarfs_to_report() {
     // Types are stripped, never checked - the same contract as Node's own
     // type stripping and esbuild. Code that `tsc` would reject still

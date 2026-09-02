@@ -132,6 +132,7 @@ pub async fn componentize(opts: ComponentizeOpts) -> Result<ComponentizeResult> 
         wit_path: &wit_path,
         js_source: &opts.js_source,
         js_path: js_path.as_deref(),
+        minify: false,
         module_root: module_root.as_deref(),
         world_name: opts.world.as_deref(),
         stub_wasi: opts.stub_wasi.unwrap_or(false),

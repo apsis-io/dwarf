@@ -38,6 +38,7 @@ async fn test_export_received_owned_resource_passes_through_to_import_as_borrow(
             }
         "#,
         js_path: None,
+        minify: false,
         module_root: None,
         world_name: None,
         stub_wasi: false,
