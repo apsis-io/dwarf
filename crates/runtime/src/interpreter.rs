@@ -176,8 +176,10 @@ impl Interpreter for QjsInterpreter {
 
             with_ctx(|ctx| {
                 let method_name = fn_lookup(ctx, method_name);
-                // First param is the resource (self)
-                let self_val = cx.pop_value(ctx);
+                // First param is the resource (self) - and it is the FIRST,
+                // so shift rather than pop: popping took the last argument
+                // instead whenever the method had any.
+                let self_val = cx.shift_value(ctx);
                 let self_obj = self_val
                     .as_object()
                     .unwrap_or_else(|| panic!("method receiver is not an object"));

@@ -219,6 +219,16 @@ impl QjsCallContext {
         self.pop_persistent().restore(ctx).expect("stack underflow")
     }
 
+    /// Takes the FIRST value off the stack, not the last.
+    ///
+    /// A resource method's receiver is lowered as its first argument, so
+    /// `pop_value` reached for it and got the last one instead - fine for a
+    /// method taking no arguments, and silently the wrong object for every
+    /// method that takes one. Ported from componentize-qjs #76.
+    pub(crate) fn shift_value<'js>(&mut self, ctx: &rquickjs::Ctx<'js>) -> Value<'js> {
+        self.stack.remove(0).restore(ctx).expect("stack underflow")
+    }
+
     pub(crate) fn pop_persistent(&mut self) -> Persistent<Value<'static>> {
         self.stack.pop().expect("stack underflow")
     }
