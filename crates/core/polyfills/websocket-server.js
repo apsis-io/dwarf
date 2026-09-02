@@ -562,18 +562,27 @@ function buildUpgradeResponse(acceptKey) {
 // available, rather than making the whole HTTP router depend on a WIT
 // import unrelated to sockets.
 //
-// Deliberately does NOT call `recvReadable.cancelRead()` on timeout, even
-// though that sounds like the "correct" way to abandon the losing read:
-// confirmed empirically that calling it while the read is still part of
-// the `Promise.race` below traps the whole guest ("waitable cannot be used
-// synchronously while added to a waitable set") - not a catchable JS
-// exception, a hard wasm trap that takes down the connection's task (and,
-// via `call_async`'s own error return, is indistinguishable from a crash
-// to the host). A resource-cleanup gap (the abandoned read only gets
-// reclaimed once the whole connection's sockets/streams are dropped, not
-// proactively cancelled the instant the timeout fires) is a strictly
-// better failure mode than a trap, so this is the safer of the two known
-// options.
+// Cancels the losing read. This used to be forbidden and the reversal is
+// worth recording, because the old note read as a permanent constraint.
+//
+// It WAS a hard guest trap ("waitable cannot be used synchronously while
+// added to a waitable set") - not a catchable exception, and via
+// `call_async`'s error return indistinguishable from a crash. The cause
+// was that the cancel reached the canonical ABI while the read's waitable
+// was still joined to the task's waitable set. dwarf's runtime now detaches
+// first: `stream_cancel_read` does `unjoin(handle)` -> `cancel_read()` ->
+// `rejoin(handle)` if the cancel itself blocks. That `unjoin` arrived with
+// componentize-qjs #69.
+//
+// Re-measured after that landed, rather than reasoned about: a component
+// that races a never-completing read against a timer and cancels the loser
+// returns "winner=TIMEOUT cancel=OK" and does not trap.
+//
+// The old note also called the abandoned read a resource-cleanup gap. That
+// was wrong independently of the trap: a pending read stays JOINED to the
+// task's waitable set and is reaped with the task - dwarf's whole async
+// model is one set-wait, not a cancel-the-loser race - so nothing leaked.
+// Cancelling is simply tidier than waiting for the connection to drop.
 const TIMED_OUT = Symbol("timed-out");
 async function readWithTimeout(recvReadable, n, timeoutMs) {
   const readPromise = recvReadable.read(n);
@@ -597,7 +606,16 @@ async function readWithTimeout(recvReadable, n, timeoutMs) {
   const result = hasClock ? await Promise.race([readPromise, timeoutPromise]) : await readPromise;
   if (hasClock) clearTimeout(timeoutHandle);
 
-  return result === TIMED_OUT ? null : result;
+  if (result === TIMED_OUT) {
+    // Safe since #69's unjoin (see above). Best-effort: a cancel that
+    // blocks is handled on the runtime side, and a throw here must not
+    // turn a timeout into a connection error.
+    try {
+      recvReadable.cancelRead();
+    } catch {}
+    return null;
+  }
+  return result;
 }
 
 // Reads raw bytes off `recvReadable` (starting from any already-buffered

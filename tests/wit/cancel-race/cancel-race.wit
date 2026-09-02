@@ -1,0 +1,12 @@
+package test:cancel-race;
+
+world cancel-race {
+    import wasi:clocks/monotonic-clock@0.3.0;
+    // Present for its `stream<u8>`, not to write anything: `wit.Stream.U8`
+    // only exists when the world actually mentions a stream<u8> somewhere.
+    // Without it `wit.Stream(undefined)` builds a stream on a type index
+    // that is not there, and the guest traps - which is how this test first
+    // failed, and it was the fixture's fault rather than cancelRead's.
+    import wasi:cli/stdout@0.3.0;
+    export probe: async func() -> string;
+}

@@ -2435,3 +2435,52 @@ async fn test_async_resource_members() {
         "a static's `this` must be its class"
     );
 }
+
+/// Cancelling the loser of a race must not trap the guest.
+///
+/// This was once forbidden: `cancel-read` reached the canonical ABI while
+/// the read's waitable was still joined to the task's waitable set, and the
+/// guest died with "waitable cannot be used synchronously while added to a
+/// waitable set" - a hard trap, not a catchable error. dwarf's runtime now
+/// detaches first (`unjoin` -> `cancel_read` -> `rejoin` if the cancel
+/// blocks), which arrived with componentize-qjs #69.
+///
+/// The reason this is a test rather than a comment: the old constraint WAS
+/// recorded in a comment, it stopped being true, and nothing re-ran it. A
+/// note describing a measurement cannot notice when the measurement changes.
+#[tokio::test]
+async fn test_cancelling_a_raced_read_does_not_trap() {
+    let mut instance = TestCase::new()
+        .wit_dir(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/wit/cancel-race"),
+        )
+        .world("cancel-race")
+        .script(
+            r#"
+            export async function probe() {
+                // Nobody writes to this stream, so the read never completes
+                // and the timer is guaranteed to win. `writable` is kept
+                // alive deliberately: dropping it would complete the read
+                // with a zero-length EOF and leave no loser to cancel.
+                const { readable, writable } = wit.Stream(wit.Stream.U8);
+                void writable;
+
+                const read = readable.read(16);
+                read.catch(() => {});
+                const timer = new Promise((r) => setTimeout(() => r("TIMEOUT"), 100));
+                const winner = await Promise.race([read, timer]);
+
+                readable.cancelRead();
+                return `${winner}:cancelled`;
+            }
+            "#,
+        )
+        .build_async()
+        .await
+        .unwrap();
+
+    // Reaching an assertion at all is the result: a trap would abort the
+    // guest and surface as a call error, not a wrong value.
+    let result = instance.call1_async("probe", &[]).await.unwrap();
+    assert_eq!(result, Val::String("TIMEOUT:cancelled".into()));
+}
