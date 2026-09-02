@@ -25,7 +25,7 @@ name = "dwarf"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Convert JavaScript to WebAssembly components (WASI Preview 3) using QuickJS"
+description = "Convert TypeScript/JavaScript to WebAssembly components (WASI Preview 3) using QuickJS"
 license.workspace = true
 readme = "README.md"
 

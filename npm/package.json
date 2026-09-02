@@ -1,7 +1,7 @@
 {
   "name": "dwarf",
-  "version": "0.1.0",
-  "description": "Convert JavaScript to WebAssembly components (WASI Preview 3) using QuickJS",
+  "version": "0.4.1",
+  "description": "Convert TypeScript/JavaScript to WebAssembly components (WASI Preview 3) using QuickJS",
   "license": "Apache-2.0",
   "main": "index.js",
   "types": "index.d.ts",
