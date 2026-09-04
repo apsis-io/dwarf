@@ -58,6 +58,31 @@ impl WitImportRegistry {
     pub(crate) fn root(&self) -> &WitInterface {
         &self.root
     }
+
+    /// Every specifier a JavaScript `import` may name, versioned form only.
+    ///
+    /// `specifiers` also holds an unversioned alias per interface so both
+    /// spellings resolve; listing both in a diagnostic would read as two
+    /// different imports, so the aliases are filtered out here.
+    pub(crate) fn importable_specifiers(&self) -> Vec<&'static str> {
+        let mut named: Vec<&'static str> = self
+            .specifiers
+            .keys()
+            .copied()
+            .filter(|s| s.contains('@'))
+            .collect();
+        if named.is_empty() {
+            named = self.specifiers.keys().copied().collect();
+        }
+        named.sort_unstable();
+        named
+    }
+
+    /// Names of the world's ROOT-scoped imports, which are not modules at
+    /// all - `register_root_imports` puts each one on `globalThis`.
+    pub(crate) fn root_global_names(&self) -> Vec<String> {
+        interface_member_names(&self.root)
+    }
 }
 
 /// Classification of a WIT function name by its canonical-ABI prefix.

@@ -756,3 +756,62 @@ fn test_cli_minify_reports_parse_errors() {
         .failure()
         .stderr(predicate::str::contains("--minify"));
 }
+
+#[test]
+fn test_cli_explains_a_wit_specifier_that_is_not_an_interface() {
+    // The failure that prompted this: a world-level function import
+    // (`import wedge: func();`) is not a module, and importing the WORLD's
+    // name reached the filesystem resolver, which reported "filesystem
+    // module not found" - true, and useless, because nobody was looking
+    // for a file. Neither did it mention that dwarf puts world-level
+    // imports on globalThis, which is the actual fix.
+    let dir = TempDir::new().unwrap();
+    let wit_dir = dir.path().join("wit");
+    fs::create_dir(&wit_dir).unwrap();
+    fs::write(
+        wit_dir.join("world.wit"),
+        "package spike:reentry;\n\nworld guest {\n  import wedge: func();\n  export poke: func() -> u32;\n}\n",
+    )
+    .unwrap();
+    let js_path = dir.path().join("main.js");
+    fs::write(
+        &js_path,
+        "import { wedge } from 'spike:reentry/guest';\nexport function poke() { return 42; }\n",
+    )
+    .unwrap();
+
+    let stderr = dwarf_cmd()
+        .arg("--wit")
+        .arg(&wit_dir)
+        .arg("--file")
+        .arg(&js_path)
+        .arg("--world")
+        .arg("guest")
+        .arg("--output")
+        .arg(dir.path().join("out.wasm"))
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8(stderr).unwrap();
+
+    assert!(
+        !stderr.contains("filesystem module not found"),
+        "a WIT specifier should not be reported as a missing file:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("is not a WIT interface this world imports"),
+        "should name the actual problem:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("globalThis") && stderr.contains("wedge"),
+        "should say world-level imports are globals, and name this one:\n{stderr}"
+    );
+    // The thrown exception is truncated by QuickJS at 256 bytes, so the
+    // one-line cause has to carry the fix on its own.
+    assert!(
+        stderr.contains("call wedge() with no import"),
+        "the exception itself should carry the remedy:\n{stderr}"
+    );
+}
