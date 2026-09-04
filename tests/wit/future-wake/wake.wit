@@ -1,0 +1,20 @@
+package spike:wake;
+
+interface waker-types {
+  /// Never called. Declared solely so the world CONTAINS a `future<u32>`,
+  /// which is what gives `wit.Future.U32` an index to exist under. Without
+  /// a future in the world the only constants are the WASI-derived ones,
+  /// and `wit.Future()` bare is an error.
+  make: func() -> future<u32>;
+}
+
+world guest {
+  import waker-types;
+  /// Never returns. The wedged host call, modelled exactly.
+  import wedge: async func();
+
+  /// Suspends in `wedge`, racing it against a future it exposes.
+  export block: async func() -> string;
+  /// A SYNC export - no task state of its own - that completes the future.
+  export poke: func() -> u32;
+}
